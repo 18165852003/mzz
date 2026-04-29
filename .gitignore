@@ -1,0 +1,30 @@
+# Visual Studio user files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+[Bb]in/
+[Oo]bj/
+Debug/
+DebugTemp/
+Debug_Check/
+Release/
+x64/
+x86/
+
+# NuGet packages restored by packages.config
+packages/
+
+# Runtime logs, dumps, and generated config
+*.log
+*.dmp
+**/log/
+**/config/tcp_config.json
+
+# Local editor / inspection scratch files
+.cursor-temp-*
+.codex-chm/
+.codex-chm-ascii/
