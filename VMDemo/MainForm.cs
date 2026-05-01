@@ -83,6 +83,12 @@ namespace VMDemo
                     return;
                 }
 
+                if (!SingletonManager.Instance.HasPendingRoundId)
+                {
+                    MessageBox.Show("请先由 TCP 客户端发送 RoundId");
+                    return;
+                }
+
                 SingletonManager.Instance.Run();
             }
             catch (Exception ex)

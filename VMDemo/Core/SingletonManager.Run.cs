@@ -53,6 +53,7 @@ namespace VMDemo
         private sealed class SingleRunRound
         {
             public int RoundId { get; set; } // 程序侧生成的单次执行轮次号。
+            public string ExternalRoundId { get; set; } // TCP 客户端下发的业务 RoundId，用于结果回传和追溯。
             public DateTime StartTime { get; set; } // 本轮开始时间，用于后续排查节拍和超时问题。
             public List<VmProcedure> ExpectedProcedures { get; set; } // 本轮期望收到结果的流程集合。
             public Dictionary<VmProcedure, ProcedureResultSnapshot> Snapshots { get; set; } // 已收到的流程结果快照。
@@ -93,14 +94,23 @@ namespace VMDemo
                 return;
             }
 
+            string externalRoundId;
+            string roundErrorMessage;
+            if (!TryConsumePendingRoundId(out externalRoundId, out roundErrorMessage))
+            {
+                AppendLog($"单次执行失败：{roundErrorMessage}");
+                return;
+            }
+
             _isRunning = true;
             SingleRunRound round = null;
+            bool doneMessageSent = false;
 
             try
             {
                 // 先登记本轮期望收到的流程集合，再启动流程，避免极快回调找不到归并轮次。
-                round = CreateSingleRunRound(procedures);
-                AppendLog($"单次执行开始：轮次 {round.RoundId}，流程数 {procedures.Count}");
+                round = CreateSingleRunRound(procedures, externalRoundId);
+                AppendLog($"单次执行开始：RoundId {round.ExternalRoundId}，内部轮次 {round.RoundId}，流程数 {procedures.Count}");
 
                 // 所有流程同级启动，不再区分主流程和辅助流程，保证四路相机尽量同时采集。
                 foreach (KeyValuePair<VmProcedure, int> item in procedures)
@@ -124,23 +134,33 @@ namespace VMDemo
                 {
                     SingleRunRound completedRound = await round.Completion.Task;
                     await Task.Run(() => FinalizeSingleRunRound(completedRound));
+                    doneMessageSent = true;
                 }
                 else
                 {
                     // 超时后关闭本轮并释放已读到但不会显示的快照，避免资源泄漏和串轮。
                     List<string> missingNames = CloseSingleRunRound(round, true);
-                    AppendLog($"单次执行超时：轮次 {round.RoundId}，缺失流程：{string.Join("、", missingNames)}");
+                    string missingText = string.Join("、", missingNames);
+                    AppendLog($"单次执行超时：RoundId {round.ExternalRoundId}，内部轮次 {round.RoundId}，缺失流程：{missingText}");
+                    SendTcpMessage(BuildRoundDoneMessage(round, 0, new List<string> { $"超时缺失流程：{missingText}" }));
+                    doneMessageSent = true;
                 }
             }
             catch (Exception ex)
             {
-                AppendLog($"单次执行异常：{ex.Message}");
+                AppendLog($"单次执行异常：RoundId {externalRoundId}，{ex.Message}");
                 Trace.WriteLine($"单次执行异常：{ex}");
+                if (!doneMessageSent)
+                {
+                    SendTcpMessage($"DONE|{externalRoundId}|NG|{SanitizeTcpMessagePart($"单次执行异常：{ex.Message}")}");
+                    doneMessageSent = true;
+                }
             }
             finally
             {
                 // 不论成功、失败还是超时，都解除当前轮次并放开下一次单次执行入口。
                 DeactivateSingleRunRound(round);
+                ClearCurrentRoundId(externalRoundId);
                 _isRunning = false;
             }
         }
@@ -159,11 +179,12 @@ namespace VMDemo
         /// <summary>
         /// 创建并激活一个新的单次执行轮次。
         /// </summary>
-        private SingleRunRound CreateSingleRunRound(List<KeyValuePair<VmProcedure, int>> procedures)
+        private SingleRunRound CreateSingleRunRound(List<KeyValuePair<VmProcedure, int>> procedures, string externalRoundId)
         {
             SingleRunRound round = new SingleRunRound
             {
                 RoundId = ++_singleRunRoundSeed,
+                ExternalRoundId = externalRoundId,
                 StartTime = DateTime.Now,
                 ExpectedProcedures = procedures.Select(item => item.Key).ToList()
             };
@@ -452,6 +473,7 @@ namespace VMDemo
             }
 
             int successCount = 0;
+            List<string> errors = new List<string>();
             List<ProcedureResultSnapshot> snapshots;
 
             lock (_singleRunLock)
@@ -470,12 +492,55 @@ namespace VMDemo
                 }
                 else
                 {
-                    AppendLog($"轮次 {round.RoundId} 流程 {GetSnapshotDisplayName(snapshot)} 结果读取失败：{snapshot.ErrorMessage}");
+                    string error = $"流程 {GetSnapshotDisplayName(snapshot)} 结果读取失败：{snapshot.ErrorMessage}";
+                    errors.Add(error);
+                    AppendLog($"RoundId {round.ExternalRoundId} 内部轮次 {round.RoundId} {error}");
                 }
             }
 
-            AppendLog($"单次执行完成：轮次 {round.RoundId}，成功 {successCount}/{round.ExpectedProcedures.Count}");
-            SendTcpMessage("1");
+            AppendLog($"单次执行完成：RoundId {round.ExternalRoundId}，内部轮次 {round.RoundId}，成功 {successCount}/{round.ExpectedProcedures.Count}");
+            SendTcpMessage(BuildRoundDoneMessage(round, successCount, errors));
+        }
+
+        /// <summary>
+        /// 构建整轮执行完成后的 TCP 回传消息。
+        /// 四路流程全部成功才返回 OK，否则返回 NG 并附带失败原因。
+        /// </summary>
+        private string BuildRoundDoneMessage(SingleRunRound round, int successCount, List<string> errors)
+        {
+            if (round == null)
+            {
+                return "DONE||NG|内部轮次为空";
+            }
+
+            bool isOk = successCount >= round.ExpectedProcedures.Count && (errors == null || errors.Count == 0);
+            if (isOk)
+            {
+                return $"DONE|{round.ExternalRoundId}|OK";
+            }
+
+            string reason = errors != null && errors.Count > 0
+                ? string.Join("；", errors)
+                : "流程结果不完整";
+
+            return $"DONE|{round.ExternalRoundId}|NG|{SanitizeTcpMessagePart(reason)}";
+        }
+
+        /// <summary>
+        /// 清理 TCP 消息字段中的分隔符和换行，避免客户端解析 DONE 消息时串字段。
+        /// </summary>
+        private string SanitizeTcpMessagePart(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return value
+                .Replace("|", "/")
+                .Replace("\r", " ")
+                .Replace("\n", " ")
+                .Trim();
         }
 
         /// <summary>

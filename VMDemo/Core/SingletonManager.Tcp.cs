@@ -1,4 +1,4 @@
-using System;                                    // 引入系统基础命名空间，提供基础类型和异常处理
+﻿using System;                                    // 引入系统基础命名空间，提供基础类型和异常处理
 using System.Collections.Generic;                // 引入泛型集合命名空间，提供List<T>等集合类型
 using System.Diagnostics;                        // 引入诊断命名空间，提供Trace.WriteLine调试输出
 using System.IO;                                 // 引入IO命名空间，提供文件读写和路径操作
@@ -444,6 +444,7 @@ namespace VMDemo                                 // 定义项目命名空间
 
                         string message = Encoding.UTF8.GetString(buffer, 0, bytesRead); // 将接收到的字节数据转换为UTF8字符串
                         AppendTcpLog($"收到客户端数据：{message}"); // 记录接收到的数据日志
+                        HandleTcpClientMessage(message); // 解析测试阶段 RoundId 下发协议，并根据状态回复客户端
                     }
                 }
                 catch (Exception ex)              // 捕获接收数据过程中的异常
@@ -464,6 +465,77 @@ namespace VMDemo                                 // 定义项目命名空间
                     }
                 }
             }, ct);                               // 将取消令牌传递给Task.Run
+        }
+
+        /// <summary>
+        /// 处理 TCP 客户端发来的测试阶段 RoundId 下发协议。
+        /// 当前支持格式：ROUND|R001，可一次接收多行命令。
+        /// </summary>
+        private void HandleTcpClientMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                SendTcpMessage("ERR|BAD_COMMAND");
+                return;
+            }
+
+            string[] commands = message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string command in commands)
+            {
+                string roundId;
+                if (!TryParseRoundCommand(command, out roundId))
+                {
+                    AppendTcpLog($"未知客户端命令：{command.Trim()}");
+                    SendTcpMessage("ERR|BAD_COMMAND");
+                    continue;
+                }
+
+                string errorMessage;
+                RoundAcceptResult acceptResult = TryAcceptRoundId(roundId, out errorMessage);
+                if (acceptResult == RoundAcceptResult.Accepted)
+                {
+                    AppendTcpLog($"已接收RoundId：{roundId}，等待单次执行。");
+                    SendTcpMessage($"ACK|{roundId}|READY");
+                }
+                else if (acceptResult == RoundAcceptResult.Used)
+                {
+                    AppendTcpLog($"RoundId接收失败：{errorMessage}");
+                    SendTcpMessage($"ERR|ROUND_USED|{roundId}");
+                }
+                else if (acceptResult == RoundAcceptResult.Busy)
+                {
+                    AppendTcpLog($"RoundId接收失败：{errorMessage}");
+                    SendTcpMessage($"BUSY|{roundId}");
+                }
+                else
+                {
+                    AppendTcpLog($"RoundId接收失败：{errorMessage}");
+                    SendTcpMessage($"ERR|BAD_ROUND|{roundId}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 解析客户端下发的 RoundId 命令。
+        /// 第一版仅支持 ROUND|RoundId，保持协议简单，便于本地图片流程测试。
+        /// </summary>
+        private bool TryParseRoundCommand(string message, out string roundId)
+        {
+            roundId = null;
+
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return false;
+            }
+
+            string[] parts = message.Trim().Split('|');
+            if (parts.Length != 2 || !string.Equals(parts[0], "ROUND", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            roundId = parts[1].Trim();
+            return !string.IsNullOrWhiteSpace(roundId);
         }
 
         /// <summary>

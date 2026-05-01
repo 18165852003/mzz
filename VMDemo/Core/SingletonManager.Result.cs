@@ -245,8 +245,7 @@ namespace VMDemo
                     if (pictureIndex == 0)
                     {
                         totalValue = ReadFirstOutputInt(procedure, "out");
-                        // 主流程执行完成后，将检测结果发送给已连接的 TCP 客户端。
-                        SendTcpMessage("1");
+                        // TCP 完成消息统一由整轮归并逻辑发送，避免单个流程提前通知客户端。
                     }
 
                     var textItems = BuildDisplayTextItems(pictureIndex, processName, countValue, totalValue);

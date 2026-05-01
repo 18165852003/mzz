@@ -599,6 +599,7 @@
     </Compile>
     <Compile Include="Core\SingletonManager.cs" />
     <Compile Include="Core\SingletonManager.Loading.cs" />
+    <Compile Include="Core\SingletonManager.Round.cs" />
     <Compile Include="Core\SingletonManager.Run.cs" />
     <Compile Include="Core\SingletonManager.Result.cs" />
     <Compile Include="Core\SingletonManager.Drawing.cs" />
