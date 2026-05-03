@@ -37,6 +37,20 @@ namespace VMDemo
         }
 
         /// <summary>
+        /// 移除当前已绑定的所有流程结束回调。
+        /// </summary>
+        private void DetachCallbacks()
+        {
+            foreach (KeyValuePair<VmProcedure, int> item in _procedureIndexMap) // 遍历当前已缓存的流程回调绑定关系。
+            {
+                if (item.Key != null) // 判断当前流程对象是否有效。
+                {
+                    item.Key.OnWorkEndStatusCallBack -= OnWorkEnd; // 解除当前流程对象上的结束回调订阅。
+                }
+            }
+        }
+
+        /// <summary>
         /// 获取当前方案中有效流程的数量。
         /// </summary>
         private int CountValidProcesses()
@@ -142,20 +156,6 @@ namespace VMDemo
                 }
 
                 pictureIndex++; // 图片框索引递增。
-            }
-        }
-
-        /// <summary>
-        /// 移除当前已绑定的所有流程结束回调。
-        /// </summary>
-        private void DetachCallbacks()
-        {
-            foreach (KeyValuePair<VmProcedure, int> item in _procedureIndexMap) // 遍历当前已缓存的流程回调绑定关系。
-            {
-                if (item.Key != null) // 判断当前流程对象是否有效。
-                {
-                    item.Key.OnWorkEndStatusCallBack -= OnWorkEnd; // 解除当前流程对象上的结束回调订阅。
-                }
             }
         }
         #endregion

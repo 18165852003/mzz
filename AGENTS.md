@@ -1,56 +1,75 @@
 # AGENTS.md
-## Assistant response conventions
 
-- Always respond in Simplified Chinese.
-- Explain plans, diffs, risks, and test steps in Chinese.
-- Keep code, commands, file paths, and API names in English.
-- When modifying code, summarize changes in Chinese.
+## 助手回复约定
 
+- 始终使用简体中文回复。
+- 计划、改动说明、风险说明、验证步骤都用中文解释。
+- 代码、命令、文件路径、类名、方法名、API 名称保持英文原样。
+- 修改代码后，用中文总结改动点。
+- 修改文件时始终使用 `apply_patch`，不要用普通重定向或脚本直接覆盖文件。
 
-本文件面向 AI 编程助手，描述项目结构、构建方式、运行时架构与开发约定。阅读者被假设对该项目一无所知。
+---
+
+## 关联 Skill
+
+本项目已整理为 Codex skill：
+
+- Skill 名称：`$vmdemo-visionmaster`
+- Skill 文件：`C:\Users\33826\.codex\skills\vmdemo-visionmaster\SKILL.md`
+
+后续需要更新本项目说明、解释执行链路、修改 `RoundId` / TCP / `SingletonManager` 相关代码时，可以在请求中显式写：
+
+```text
+使用 $vmdemo-visionmaster 更新 AGENTS.md
+```
+
+或：
+
+```text
+使用 $vmdemo-visionmaster 检查当前项目结构并修改 RoundId 逻辑
+```
 
 ---
 
 ## 项目概述
 
-- **项目名称**：VMDemo
-- **项目类型**：Windows 桌面 WinForms 应用程序（`.NET Framework 4.8`）
-- **UI 框架**：SunnyUI `3.9.3`（通过 `packages.config` 管理）
-- **核心用途**：VisionMaster 4.2 视觉方案的二次开发演示程序，支持加载 `.sol` 方案文件、单次执行、连续执行（硬件触发）、图像结果显示及 TCP 通讯。
-- **运行依赖**：本程序**不是自包含应用**，必须在本地安装 **VisionMaster 4.2**，并依赖其 SDK 程序集（`VM.Core.dll`、`VM.PlatformSDKCS.dll` 及大量 `IMVS*` / `VMControls*` 模块）。
+- **项目名称**：`VMDemo`
+- **项目类型**：Windows 桌面 WinForms 应用程序，目标框架为 `.NET Framework 4.8`
+- **UI 框架**：`SunnyUI 3.9.3`，通过 `packages.config` 管理。
+- **核心用途**：基于 Hikrobot VisionMaster 4.2 SDK 的二次开发演示程序，用于加载 `.sol` 方案、执行多流程视觉检测、显示图像/ROI/文字叠加结果，并通过 TCP 与外部客户端按 `RoundId` 协议联动。
+- **运行依赖**：本程序不是自包含应用，编译和运行都依赖本机已安装 VisionMaster 4.2 及其 SDK/GAC 程序集。
 
 ---
 
 ## 解决方案与工程结构
 
-- **解决方案文件**：`VMDemo.sln`（Visual Studio 2022 格式，Format Version 12.00）
+- **解决方案文件**：`VMDemo.sln`
 - **唯一编译项目**：`VMDemo/VMDemo.csproj`
 - **目标框架**：`.NET Framework 4.8`
 - **输出类型**：`WinExe`
-- **平台目标**：解决方案配置为 `Any CPU`，但项目属性中 `PlatformTarget` 固定为 `x64`（Debug 和 Release 均如此），因为 VisionMaster SDK 为 64 位。
-- **应用程序清单**：`app.manifest` 已配置。
+- **平台目标**：解决方案平台是 `Any CPU`，但项目 `PlatformTarget` 固定为 `x64`，不要改成 `x86`。
+- **当前有效业务代码目录**：`VMDemo/Core/SingletonManager*.cs`
+- **旧草稿文件**：`VMDemo/SingletonManager.cs` 未包含在 `VMDemo.csproj` 中，除非项目文件发生变化，否则不要把它当作有效实现入口。
 
 ---
 
-## 构建与运行命令
+## 构建与验证命令
 
-> 推荐在已配置 `MSBuild.exe` 和 `nuget` 环境变量的命令行（如 Visual Studio Developer Command Prompt）中执行。本项目使用 `packages.config`，**不应使用 `dotnet build`**。
+本项目使用 `packages.config`，不要优先使用 `dotnet build`。在这台机器上，已验证的构建路径是：
 
 ```bash
-# 还原 NuGet 包
 nuget restore VMDemo.sln
-
-# Debug 构建
-MSBuild.exe VMDemo.sln /t:Build /p:Configuration=Debug /p:Platform="Any CPU"
-
-# Release 构建
-MSBuild.exe VMDemo.sln /t:Build /p:Configuration=Release /p:Platform="Any CPU"
-
-# 运行（Debug 构建后）
-VMDemo\bin\Debug\VMDemo.exe
+dotnet msbuild VMDemo.sln /t:Build /p:Configuration=Debug /p:Platform="Any CPU"
 ```
 
-- 本仓库**没有测试项目**，验证方式以解决方案能否成功编译为主。
+如果要使用传统 Visual Studio MSBuild，也可以在正确环境中执行：
+
+```bash
+MSBuild.exe VMDemo.sln /t:Build /p:Configuration=Debug /p:Platform="Any CPU"
+MSBuild.exe VMDemo.sln /t:Build /p:Configuration=Release /p:Platform="Any CPU"
+```
+
+本仓库没有单元测试项目，主要验证方式是成功编译，并在安装了 VisionMaster 4.2 的机器上手动运行 `VMDemo/bin/Debug/VMDemo.exe`。
 
 ---
 
@@ -59,227 +78,271 @@ VMDemo\bin\Debug\VMDemo.exe
 ### NuGet 包
 
 | 包名 | 版本 | 说明 |
-|------|------|------|
-| SunnyUI | 3.9.3 | WinForms UI 控件库 |
-| SunnyUI.Common | 3.9.3 | SunnyUI 公共依赖 |
+| --- | --- | --- |
+| `SunnyUI` | `3.9.3` | WinForms UI 控件库 |
+| `SunnyUI.Common` | `3.9.3` | SunnyUI 公共依赖 |
 
-### VisionMaster SDK 引用（关键）
+### VisionMaster SDK 引用
 
-以下两个核心库通过**绝对路径**引用，路径指向 VisionMaster 4.2 安装目录：
+关键 SDK 通过绝对路径引用：
 
 - `C:\Program Files\VisionMaster4.2.0\Development\V4.x\ComControls\Assembly\VM.Core.dll`
 - `C:\Program Files\VisionMaster4.2.0\Development\V4.x\ComControls\Assembly\VM.PlatformSDKCS.dll`
 
-此外，`VMDemo.csproj` 还引用了大量以名称方式引用的 GAC/机器全局程序集，包括：
-
-- `VMControls.*`（渲染与界面接口）
-- `IMVS*`（VisionMaster 各视觉模块的 C# 封装，如 `IMVSLineFindModuCs`、`IMVSCnnDetectModuCs` 等）
-- `ImageCollect*ModuCs`、`SaveImageCs`、`TriggerModuleCs` 等辅助模块
-- `Apps.UIHelper`、`FrontendUI.WPF`、`PresentationCore`、`PresentationFramework` 等辅助渲染库
-
-**重要**：这些引用均设置 `<Private>False</Private>`，表示编译时不复制到输出目录，运行时必须依赖 VisionMaster 安装环境或相关程序已注册到 GAC。
+项目还引用大量 `IMVS*`、`VMControls.*`、`ImageCollect*ModuCs`、`SaveImageCs`、`TriggerModuleCs` 等 VisionMaster 全局程序集。多数引用设置了 `<Private>False</Private>`，运行时依赖本机 VisionMaster 安装环境或 GAC 注册状态。
 
 ---
 
-## 代码组织结构
+## 当前代码组织
 
-```
+```text
 VMDemo/
-├── Program.cs                      # 程序入口，单实例互斥锁
-├── MainForm.cs / .Designer.cs      # 主窗体（SunnyUI UIForm），工具栏与日志面板
-├── MainForm.resx
-├── TCPForm.cs / .Designer.cs       # TCP 通讯配置弹窗（SunnyUI UIForm）
-├── TCPForm.resx
-├── ControlHoverSelectionManager.cs # 工具栏图标悬停高亮与 ToolTip 管理器（单例）
-├── SingletonManager.cs             # ⚠️ 未包含在 csproj 中，是旧草稿，不要直接使用
-├── App.config                      # VisionMaster 服务启动配置（StartServerByExe / ServerPath）
-├── app.manifest                    # 应用程序清单
-├── packages.config                 # NuGet 包配置
-├── Properties/                     # 程序集信息、资源、设置
-├── Contro/                         # 自定义显示控件
-│   ├── ZoomPictureBox.cs           # 自定义图像框：支持滚轮缩放、鼠标平移、双击复位
-│   ├── UserControl1.cs             # 1 宫格布局（1 个流程）
-│   ├── UserControl2.cs             # 2 宫格布局（2 个流程）
-│   └── UserControl4.cs             # 4 宫格布局（3 个及以上流程）
-└── VM/                             # SingletonManager 真身（分部类，按功能拆分为多个文件）
-    ├── SingletonManager.cs           # 核心字段、单例入口、执行状态标志
-    ├── SingletonManager.Loading.cs   # 方案加载、显示布局创建、回调绑定
-    ├── SingletonManager.Run.cs       # 单次执行与连续执行的流程调度
-    ├── SingletonManager.Result.cs    # 结果读取、图像转 Bitmap、文字叠加
-    ├── SingletonManager.Drawing.cs   # VM 图像格式转换、旋转矩形绘制、文字绘制
-    ├── SingletonManager.Log.cs       # 应用级日志（历史缓存 + 事件通知）
-    ├── SingletonManager.Tcp.cs       # TCP 服务端：监听、连接管理、消息收发、配置持久化
-    └── SingletonManager.Dispose.cs   # 资源释放
+├── Program.cs
+├── MainForm.cs / MainForm.Designer.cs / MainForm.resx
+├── TCPForm.cs / TCPForm.Designer.cs / TCPForm.resx
+├── SingletonManager.cs                 # 旧草稿，未编译进项目
+├── App.config
+├── app.manifest
+├── packages.config
+├── Properties/
+├── CustomControls/
+│   ├── ZoomPictureBox.cs
+│   ├── UserControl1.cs / .Designer.cs / .resx
+│   ├── UserControl2.cs / .Designer.cs / .resx
+│   └── UserControl4.cs / .Designer.cs / .resx
+└── Core/
+    ├── SingletonManager.cs
+    ├── SingletonManager.Loading.cs
+    ├── SingletonManager.Round.cs
+    ├── SingletonManager.Run.cs
+    ├── SingletonManager.Result.cs
+    ├── SingletonManager.Drawing.cs
+    ├── SingletonManager.Log.cs
+    ├── SingletonManager.Tcp.cs
+    ├── SingletonManager.Dispose.cs
+    └── SingletonManager.HoverText.cs
 ```
+
+注意：目录名是 `CustomControls`，但自定义控件命名空间仍是 `VMDemo.Contro`，引用时保持现状，不要随手重命名。
 
 ---
 
-## 关键模块说明
+## 主界面行为
 
-### Program.cs
-- 使用 `[STAThread]` 标记的 WinForms 入口。
-- 通过全局命名 `Mutex`（`"MyApp_UniqueId_12345"`）实现**单实例运行**，重复启动会弹出提示框并退出。
+### `MainForm.cs`
 
-### MainForm.cs
-- 继承自 `Sunny.UI.UIForm`。
-- 工具栏包含四个功能按钮（通过 `UISymbolLabel` 实现）：
-  1. **TCP 通讯**：打开 `TCPForm` 弹窗。
-  2. **加载方案**：打开文件对话框，筛选 `.sol` 文件，调用 `SingletonManager.Instance.Load(...)`。
-  3. **单次执行**：调用 `SingletonManager.Instance.Run()`。
-  4. **连续执行**：切换启动/停止 `SingletonManager.Instance.StartContinuousRun()` / `StopContinuousRun()`。
-- 底部 `ListBox` 为日志显示区：
-  - 自定义绘制（`DrawItem`），错误日志（含"失败"、"异常"、"错误"、"报警"关键字）显示为**红色**，正常日志为**绿色**。
-  - 通过 `SingletonManager.LogReceived` 事件接收日志，自动追加时间戳并滚动到底部。
-- 窗体加载时自动尝试启动 TCP 服务端（`TryAutoStartTcpServer`）。
-- 窗体关闭时停止 TCP 服务端并释放方案资源。
+- 继承 `Sunny.UI.UIForm`。
+- 构造函数中关闭 WinForms 和 SunnyUI 自动缩放：
+  - `AutoScaleMode = AutoScaleMode.None`
+  - `ZoomScaleDisabled = true`
+  - `ZoomScaleRect = Rectangle.Empty`
+- 当前工具栏实际注册 3 个按钮：
+  1. `uiSymbolLabel1`：打开 `TCPForm`
+  2. `uiSymbolLabel2`：加载 `.sol` 方案并调用 `SingletonManager.Instance.Load(...)`
+  3. `uiSymbolLabel3`：执行单次检测，调用 `SingletonManager.Instance.Run()`
+- 单次执行前会做两个 UI 门控：
+  - 未加载方案时提示“请先加载方案”
+  - 没有待执行 `RoundId` 时提示“请先由 TCP 客户端发送 RoundId”
+- `MainForm_Load` 会订阅 `SingletonManager.LogReceived`，回放历史日志，并调用 `TryAutoStartTcpServer()`。
+- `MainForm_FormClosed` 会取消日志订阅、停止 TCP 服务端，并释放已加载方案资源。
+- 底部日志 `ListBox` 使用自绘：包含“失败 / 异常 / 错误 / 报警”的日志显示红色，其余日志显示绿色。
 
-### ControlHoverSelectionManager
-- 单例类，负责为工具栏控件注册**悬停高亮**效果（背景色变深）和 **ToolTip** 提示。
-- 通过反射操作 SunnyUI 控件的 `FillColor` / `FillColor2` 属性。
-- **重要**：由于弹窗或模态操作可能导致 `MouseLeave` 事件不触发，任何按钮点击后必须调用 `ForceRestoreColor(control)` 强制恢复颜色。
+### 悬浮提示与高亮
 
-### ZoomPictureBox（Contro/ZoomPictureBox.cs）
-- 继承自 `PictureBox`，但**不依赖默认 `Image` 显示机制**，完全通过重写 `OnPaint` 自行绘制。
-- 功能：
-  - `SetImage(Bitmap)`：设置图像，旧图像会被自动释放（**所有权转移**）。
-  - 鼠标左键拖动平移。
-  - 滚轮缩放（以鼠标位置为中心）。
-  - 双击或控件尺寸变化时自适应控件大小并居中。
-- **约束**：外部将 `Bitmap` 传入 `SetImage(...)` 后，**不得再复用或手动释放该 Bitmap**。
+当前悬浮提示逻辑在 `VMDemo/Core/SingletonManager.HoverText.cs` 中，通过 `RegisterHoverText(...)` 为工具栏控件注册：
 
-### SingletonManager（VM/ 目录下的分部类）
+- 原生 WinForms `ToolTip`
+- 鼠标悬停背景色
+- 单击后的选中背景色
 
-这是本项目的**核心引擎**，所有与 VisionMaster SDK 的交互都集中于此。
-
-#### 1. 方案加载（SingletonManager.Loading.cs）
-- `Load(string path, UIPanel hostPanel)`：
-  - 调用 `VmSolution.Load(path)` 加载 `.sol` 方案。
-  - 通过 `GetAllProcedureList()` 统计有效流程数（`nProcessID != 0`）。
-  - 根据流程数选择显示布局：1 个 → `UserControl1`，2 个 → `UserControl2`，≥3 个 → `UserControl4`。
-  - 递归收集用户控件内所有 `PictureBox` 并按 `Name` 排序，映射到流程索引。
-  - 为每个有效流程绑定 `OnWorkEndStatusCallBack`（统一回调为 `OnWorkEnd`）。
-
-#### 2. 执行调度（SingletonManager.Run.cs）
-- **单次执行（`Run()`）**：
-  - 流程 2/3/4（索引非 0）先**并行执行**，通过 `TaskCompletionSource<bool>`（`_completionSignals`）等待全部完成。
-  - 流程 1（索引 0）在所有并行流程完成后**串行执行**，并作为最终主结果。
-  - 单次执行使用 `_isRunning` 标志防止重叠触发。
-- **连续执行（硬件触发）**：
-  - `StartContinuousRun()`：切换回调为 `OnContinuousWorkEnd`，启用 `ContinuousRunEnable = true`。
-  - `StopContinuousRun()`：关闭连续执行，恢复单次回调。
-  - 连续模式下同样保持"先并行后串行"的时序逻辑，主流程（流程 1）等待并行流程完成或超时（`ContinuousTimeoutMs = 5000ms`）。
-  - 每轮触发后自动重置 `_continuousSignals`，准备下一轮。
-
-#### 3. 结果处理与图像渲染（SingletonManager.Result.cs + Drawing.cs）
-- `DisplayProcedureResult(...)` 在回调中异步读取流程结果并显示：
-  - 图像输出名固定为 `"Img"`，通过 `GetOutputImageV2` 读取。
-  - ROI 矩形框输出名固定为 `"ROI"`，通过 `GetOutputBoxArray` 读取。
-  - 整数输出名固定为 `"COUNT"`；主流程（索引 0）额外读取 `"out"`。
-- **重试机制**：首次执行时 SDK 结果缓冲区可能未就绪，`ReadProcedureImageWithRetry` 最多重试 3 次，每次间隔 100ms。
-- 图像格式转换（`ConvertToBitmap`）目前支持：
-  - `VM_PIXEL_MONO_08`（8 位灰度）
-  - `VM_PIXEL_RGB24_C3`（24 位彩色，自动交换 R/B 通道）
-- 绘制功能：
-  - 在图像上绘制带角度的矩形框（`DrawRotatedRectangles`）。
-  - 在图像上叠加文字信息（匹配框个数、匹配框总数等）。
-  - 灰度图需先通过 `EnsureDrawable` 转换为 24 位 RGB 才能用 `Graphics` 绘制。
-
-#### 4. TCP 通讯（SingletonManager.Tcp.cs）
-- 内建简易 **TCP 服务端**（基于 `TcpListener` / `TcpClient`）。
-- 配置文件路径：`程序目录/config/tcp_config.json`，包含 `ServerIp`、`ServerPort`、`AutoStart`。
-- 默认配置：`127.0.0.1:7777`，`AutoStart = true`。
-- 启动后自动保存配置；配置校验失败时回退到默认配置。
-- 连接策略：只保留**一个客户端**，新客户端接入时自动断开旧客户端。
-- 主流程（流程 1）执行完成后，会自动调用 `SendTcpMessage("1")` 向已连接客户端发送结果通知。
-- TCP 日志与应用级日志分离，但 TCP 日志会同时汇入应用级日志。
-
-#### 5. 日志（SingletonManager.Log.cs）
-- 通过 `AppendLog(string)` 写日志。
-- 内部维护 `_logHistory` 列表（上限 200 条，超出时移除最早记录）。
-- 通过 `LogReceived` 事件通知 `MainForm` 更新 UI。
+后续调整工具栏交互时，优先沿用这个分部类，不要重新引入一套平行的 hover 管理器。
 
 ---
 
-## 运行时架构要点
+## `SingletonManager` 分部类职责
 
-### 执行时序
-```
-单次执行 / 连续执行的每一轮：
-├─ 并行阶段：流程 2、3、4 同时触发 Run()
-│   └─ 各自 OnWorkEnd / OnContinuousWorkEnd 回调 → 显示图像 → 发完成信号
-└─ 串行阶段：流程 1 等待并行信号全部到达（或超时）后触发 Run()
-    └─ 回调 → 显示图像 → 若为单次执行则标记整体完成
-```
+### `SingletonManager.cs`
 
-### 显示布局与流程映射
-- `UserControl1` / `UserControl2` / `UserControl4` 中放置的 `PictureBox`（实际为 `ZoomPictureBox`）按控件名称排序后，依次映射到流程索引 0、1、2、3。
-- **改变 PictureBox 的 Name 或顺序会直接影响流程到显示面板的映射关系**。
+- 提供线程安全单例 `SingletonManager.Instance`。
+- 保存流程到显示区域的映射 `_procedureIndexMap`。
+- 保存当前显示控件、图片框列表、流程名称列表。
+- 保存单次执行状态：
+  - `_isRunning`
+  - `_singleRunLock`
+  - `_singleRunRoundSeed`
+  - `_activeSingleRunRound`
+- `IsLoaded` 通过 `VmSolution.Instance` 和有效流程数量判断方案是否已加载。
 
-### 线程与同步
-- `SingletonManager` 内部大量使用 `Task.Run` 和 `async/await` 将 SDK 回调工作转移到后台线程，避免阻塞 UI。
-- UI 更新统一通过 `BeginInvoke` 或 `Invoke` 调度到主线程。
-- 连续执行模式下使用 `_continuousSignalLock` 保护 `_continuousSignals` 字典。
-- `_isRunning` 和 `_isContinuousRunning` 标记为 `volatile`，确保多线程可见性。
+### `SingletonManager.Loading.cs`
+
+- `Load(string path, UIPanel hostPanel)` 加载 `.sol` 方案。
+- 通过 `VmSolution.Instance.GetAllProcedureList()` 获取有效流程。
+- 根据流程数选择 `UserControl1`、`UserControl2` 或 `UserControl4`。
+- 递归收集用户控件中的 `PictureBox`，按 `Name` 排序后映射到流程索引。
+- 为每个有效流程绑定 `OnWorkEndStatusCallBack += OnWorkEnd`。
+
+### `SingletonManager.Run.cs`
+
+当前执行模型是 **RoundId 门控的一次性单次执行**：
+
+- 点击单次执行后，先调用 `TryConsumePendingRoundId(...)` 消费 TCP 客户端下发的 `RoundId`。
+- 所有有效流程同级并行触发 `Run()`，不再按“流程 2/3/4 并行、流程 1 串行”的旧模式执行。
+- 每个流程完成后进入 `OnWorkEnd(...)` 回调。
+- 回调中异步调用 `CaptureProcedureResultSnapshot(...)`，立即复制图像和输出值，避免 SDK 后续执行覆盖结果缓存。
+- 所有流程快照收齐后，`FinalizeSingleRunRound(...)` 统一显示图像、写日志、发送 TCP `DONE` 消息。
+- `RunAbsoluteTimeoutMs = 1000`，如果某些流程没有回调，会超时返回 `DONE|RoundId|NG|原因`。
+- 不论成功、失败、异常还是超时，最后都会调用 `ClearCurrentRoundId(...)` 清空当前执行中的 `RoundId`，但不会从已使用历史中删除该 `RoundId`。
+
+### `SingletonManager.Round.cs`
+
+负责 `RoundId` 状态机和单次使用规则：
+
+- `_pendingRoundId`：TCP 客户端已下发、等待操作员点击单次执行。
+- `_currentRoundId`：已经被单次执行消费，当前正在执行。
+- `_usedRoundIds`：内存中的已使用集合。
+- `round_history.json`：程序重启后仍要防重复的持久化历史。
+- `TryAcceptRoundId(...)`：TCP 收到 `ROUND|...` 时校验并接收。
+- `TryConsumePendingRoundId(...)`：点击单次执行时消费，并立即写入已使用历史。
+- `ClearCurrentRoundId(...)`：一轮结束后只清空当前执行状态，不回滚已使用状态。
+
+关键语义：`RoundId` 在“开始执行消费”时就永久视为已使用，不是等 OK 后才保存。即使后续 NG、超时或程序崩溃，也不能再次使用同一个 `RoundId`。
+
+### `SingletonManager.Tcp.cs`
+
+负责内建 TCP 服务端：
+
+- 默认配置：`127.0.0.1:7777`，`AutoStart = true`
+- 配置文件：程序输出目录下 `config/tcp_config.json`
+- 只保留一个客户端，新客户端接入时断开旧客户端。
+- 支持客户端一次发送多行命令。
+- 当前协议：
+  - 客户端下发：`ROUND|RoundId`
+  - 接收成功：`ACK|RoundId|READY`
+  - 忙碌或已有待执行：`BUSY|RoundId`
+  - 已使用：`ERR|ROUND_USED|RoundId`
+  - 格式错误：`ERR|BAD_ROUND|RoundId` 或 `ERR|BAD_COMMAND`
+  - 执行完成：`DONE|RoundId|OK`
+  - 执行失败：`DONE|RoundId|NG|原因`
+- `SendTcpMessage(...)` 不会自动追加换行，如客户端协议需要换行，需要双方显式约定。
+
+### `SingletonManager.Result.cs`
+
+负责读取输出、绘制叠加文字、显示图像：
+
+- 图像输出名固定为 `"Img"`，通过 `GetOutputImageV2("Img")` 读取。
+- ROI 输出名固定为 `"ROI"`，通过 `GetOutputBoxArray("ROI")` 读取。
+- 数量输出名固定为 `"COUNT"`，通过 `ReadFirstOutputInt(...)` 读取。
+- `CaptureProcedureResultSnapshot(...)` 是新增流程输出读取的第一落点。
+- `BuildSnapshotTextItems(...)` 是把新输出显示到图像叠加文字中的落点。
+- `UpdatePictureBoxImage(...)` 最终调用 `ZoomPictureBox.SetImage(...)`，位图所有权会转移给控件。
+
+### `SingletonManager.Drawing.cs`
+
+- 负责 VisionMaster 图像数据转 `Bitmap`。
+- 支持 `VM_PIXEL_MONO_08` 和 `VM_PIXEL_RGB24_C3`。
+- 负责绘制旋转矩形 ROI 和图像文字。
+
+### `SingletonManager.Log.cs`
+
+- `AppendLog(string)` 写入应用日志。
+- 内部保留最多 200 条历史日志。
+- 通过 `LogReceived` 通知主界面追加显示。
+
+### `SingletonManager.Dispose.cs`
+
+- 停止 TCP 服务端。
+- 解绑流程回调。
+- 清空流程映射、显示控件和方案实例。
+- 释放时不要恢复或重启连续执行逻辑，当前代码已没有连续执行功能。
 
 ---
 
-## 配置说明（App.config）
+## `ZoomPictureBox` 约束
+
+文件：`VMDemo/CustomControls/ZoomPictureBox.cs`
+
+- 继承 `PictureBox`，但不依赖默认 `Image` 显示机制，而是重写 `OnPaint` 自绘。
+- 支持鼠标左键拖动平移、滚轮缩放、双击复位、尺寸变化自适应。
+- `SetImage(Bitmap image)` 会接管传入 `Bitmap` 的所有权，并释放上一张图。
+- 调用方把 `Bitmap` 传给 `SetImage(...)` 后，不要再次复用或手动释放该对象。
+
+---
+
+## 配置文件
+
+### `App.config`
 
 ```xml
 <appSettings>
-  <!-- 启动服务形式：0=默认系统服务，1=exe 方式启动 -->
   <add key="StartServerByExe" value="0" />
-  <!-- 服务绝对路径（value 为空时默认拉起系统服务） -->
   <add key="ServerPath" value="" />
 </appSettings>
 ```
 
-- 该配置控制 VisionMaster 后台服务的启动方式，与程序自身的 TCP 服务端无关。
+该配置控制 VisionMaster 后台服务启动方式，与本程序内建 TCP 服务端无关。
+
+### TCP 配置
+
+- 路径：`程序输出目录/config/tcp_config.json`
+- 字段：`ServerIp`、`ServerPort`、`AutoStart`、`LastSavedTime`
+- 保存 TCP 配置时会自动设置 `AutoStart = true`。
+
+### RoundId 历史
+
+- 路径：`程序输出目录/config/round_history.json`
+- 字段：`UsedRoundIds`、`LastSavedTime`
+- 首次使用 `RoundId` 状态时懒加载。
+- `TryConsumePendingRoundId(...)` 消费成功后立即保存。
 
 ---
 
-## 开发约定与代码风格
+## 开发约定
 
-- **语言**：C#，代码注释以**中文**为主。
-- **命名空间**：项目根命名空间为 `VMDemo`；自定义控件在 `VMDemo.Contro`。
-- **单例模式**：`SingletonManager` 和 `ControlHoverSelectionManager` 均使用 `Lazy<T>` 实现线程安全单例。
-- **分部类（partial）**：`SingletonManager` 按功能拆分为多个文件，禁止在同一文件中混入无关逻辑。
-- **UI 缩放**：`MainForm` 和所有用户控件均显式设置 `AutoScaleMode = AutoScaleMode.None`，且 `MainForm` 设置 `ZoomScaleDisabled = true`、`ZoomScaleRect = Rectangle.Empty`，**严禁开启自动缩放**，以防止 SunnyUI 运行时布局漂移。
-- **资源释放**：
-  - `ZoomPictureBox.SetImage(...)` 接管 Bitmap 所有权，调用方不得再次释放。
-  - `SingletonManager.Dispose()` 时会先停止 TCP 服务端和连续执行，再解绑回调、清空映射、释放方案实例。
-- **异常处理**：对 SDK 结果读取、TCP 网络操作、流程停止等操作均包裹 try-catch，避免单点异常导致程序崩溃。
+- C# 注释以中文为主，协议、状态机、持久化、线程同步相关逻辑尤其要保留维护导向的中文注释。
+- 保持 `SingletonManager.XXX.cs` 分部类组织方式，不要把无关逻辑混到单个大文件里。
+- 修改 `SingletonManager` 前先确认 `VMDemo.csproj` 当前包含的是 `VMDemo/Core/SingletonManager*.cs`。
+- UI 缩放设置不要随意开启，避免 SunnyUI 运行时布局漂移。
+- TCP 服务端无鉴权、无加密，只适合内网或本地调试，不要建议直接暴露到公网。
+- 如果搜索“连续执行”相关遗留内容，要排除 `bin/**`、`obj/**` 等构建输出。
+- 当前源码里部分旧文件可能存在中文编码显示异常；如果要修正文案或注释，优先使用 UTF-8 保存，并用构建验证确认没有破坏语法。
+
+---
+
+## 常见修改入口
+
+- **改 TCP 协议解析或回复**：`VMDemo/Core/SingletonManager.Tcp.cs`
+- **改 RoundId 接收、消费、持久化规则**：`VMDemo/Core/SingletonManager.Round.cs`
+- **改单次执行调度、超时、归并、DONE 消息**：`VMDemo/Core/SingletonManager.Run.cs`
+- **增加读取流程输出**：先看 `CaptureProcedureResultSnapshot(...)`，再看 `ReadFirstOutputInt(...)` / `TryReadFirstOutputInt(...)`
+- **增加图像叠加文字**：`BuildSnapshotTextItems(...)`
+- **改图像绘制或格式转换**：`VMDemo/Core/SingletonManager.Drawing.cs`
+- **改主界面按钮和日志显示**：`VMDemo/MainForm.cs` 和 `VMDemo/MainForm.Designer.cs`
+- **改悬浮提示和高亮**：`VMDemo/Core/SingletonManager.HoverText.cs`
+- **改图片框交互**：`VMDemo/CustomControls/ZoomPictureBox.cs`
 
 ---
 
 ## 测试策略
 
-- **本项目无单元测试项目**，验证方式以以下步骤为准：
-  1. `nuget restore VMDemo.sln` 成功。
-  2. `MSBuild.exe VMDemo.sln /t:Build /p:Configuration=Debug /p:Platform="Any CPU"` 成功（无编译错误）。
-  3. 在已安装 VisionMaster 4.2 的环境中运行 `VMDemo.exe`。
-  4. 手动验证：加载 `.sol` 方案 → 单次执行 → 图像是否正常显示 → ROI 和文字是否叠加正确 → 连续执行模式切换是否正常 → TCP 客户端能否收到主流程完成通知。
+优先按以下顺序验证：
+
+1. `nuget restore VMDemo.sln`
+2. `dotnet msbuild VMDemo.sln /t:Build /p:Configuration=Debug /p:Platform="Any CPU"`
+3. 在安装了 VisionMaster 4.2 的环境中运行 `VMDemo/bin/Debug/VMDemo.exe`
+4. 手动验证：
+   - 启动后 TCP 服务端自动监听
+   - TCP 客户端发送 `ROUND|R001`
+   - 主界面点击“单次执行”
+   - 四路流程图像正常显示
+   - ROI 和文字叠加正确
+   - 客户端收到 `DONE|R001|OK` 或 `DONE|R001|NG|原因`
+   - 重复发送已使用的 `RoundId` 返回 `ERR|ROUND_USED|RoundId`
 
 ---
 
-## 安全与注意事项
+## 已知遗留点
 
-- **外部依赖路径硬编码**：`VMDemo.csproj` 中 `VM.Core.dll` 和 `VM.PlatformSDKCS.dll` 的 `HintPath` 是绝对路径 `C:\Program Files\VisionMaster4.2.0\...`。如果 VisionMaster 安装路径不同，需要手动修改 `.csproj` 或确保路径存在。
-- **GAC 依赖**：大量 `IMVS*` 模块依赖机器全局程序集缓存，在新机器上编译/运行前需确保 VisionMaster 已正确安装并注册。
-- **TCP 服务端无鉴权**：内建 TCP 服务端为明文通讯，无身份验证、无加密，仅用于局域网内部通知，**不建议直接暴露于公网**。
-- **单实例互斥锁名称固定**：`"MyApp_UniqueId_12345"`，如需支持多开需修改此名称。
-- **x64 强制**：虽然解决方案平台是 `Any CPU`，但 `PlatformTarget` 固定为 `x64`。不要在 32 位环境或强制 x86 模式下运行。
-
----
-
-## 已知遗留问题与易错点
-
-- `VMDemo/SingletonManager.cs`（根目录下）是一份**旧草稿**，**未被包含在 `VMDemo.csproj` 中**。所有业务逻辑都在 `VMDemo/VM/SingletonManager*.cs` 中，切勿混淆。
-- 渲染逻辑硬编码依赖 VisionMaster 输出项名称：`"Img"`、`"ROI"`、`"COUNT"`、主流程的 `"out"`。如果方案中输出项名称不同，显示会异常。
-- TCP 工具栏按钮在主界面已有完整实现（打开 `TCPForm`），旧 AGENTS.md 中提到的"空实现"已更新。
-
----
-
-## 相关文件
-
-- `CLAUDE.md`：包含相同项目指引的英文版本；如修改本文件，请同步更新 `CLAUDE.md` 以保持信息一致。
+- `VMDemo/SingletonManager.cs` 是旧草稿，不在当前项目编译项里。
+- 当前有效实现目录是 `VMDemo/Core`，不是旧文档里提到的 `VMDemo/VM`。
+- 当前项目没有连续执行入口，旧的 `StartContinuousRun()`、`StopContinuousRun()`、`uiSymbolLabel4` 相关说明不再适用。
+- 输出项名称 `"Img"`、`"ROI"`、`"COUNT"` 是硬编码约定，VisionMaster 方案内输出名不一致会导致显示或统计异常。

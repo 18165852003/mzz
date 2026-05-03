@@ -157,6 +157,13 @@ namespace VMDemo
             items.Add(Tuple.Create($"数量：{snapshot.CountValue}", new VM.PlatformSDKCS.PointF(10, y)));
             y += 130;
 
+            if(snapshot.PictureIndex == 0)
+            {
+                items.Add(Tuple.Create($"总数：{snapshot.TotalOutValue}", new VM.PlatformSDKCS.PointF(10, y)));
+                y += 130;
+            }
+            
+
             //if (snapshot.HasOutValue)
             //{
             //    items.Add(Tuple.Create($"out：{snapshot.OutValue}", new VM.PlatformSDKCS.PointF(10, y)));
