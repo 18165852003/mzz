@@ -1,16 +1,17 @@
 ﻿using System.Collections.Generic;
-using System.Drawing;
-using System.Linq;
-using System.Windows.Forms;
-using Sunny.UI;
-using VM.Core;
-using VM.PlatformSDKCS;
-using VMDemo.Contro;
+// System.Collections.Generic 提供 List<T>、KeyValuePair 等集合类型。
+using System.Drawing; // 引入绘图命名空间，保留与显示控件相关的颜色/尺寸类型引用。
+using System.Linq; // 引入 LINQ 命名空间，用于筛选和排序流程、控件集合。
+using System.Windows.Forms; // 引入 WinForms 命名空间，提供 Control、PictureBox 等控件类型。
+using Sunny.UI; // 引入 SunnyUI 命名空间，提供 UIPanel 承载控件。
+using VM.Core; // 引入 VisionMaster 核心命名空间，提供 VmSolution、VmProcedure 等类型。
+using VM.PlatformSDKCS; // 引入 VisionMaster 平台 SDK 命名空间，提供流程信息结构。
+using VMDemo.Contro; // 引入项目自定义控件命名空间，提供 UserControl1/2/4。
 
-namespace VMDemo
-{
-    public sealed partial class SingletonManager
-    {
+namespace VMDemo // 定义当前项目命名空间。
+{ // 命名空间开始。
+    public sealed partial class SingletonManager // 声明 SingletonManager 分部类，本文件负责方案加载、显示布局创建和回调绑定。
+    { // 类开始。
         #region 加载方案
         /// <summary>
         /// 加载指定方案，并根据流程数量创建对应的图像显示界面。
@@ -89,10 +90,10 @@ namespace VMDemo
                 pb.SizeMode = PictureBoxSizeMode.Zoom; // 将图片框显示模式设为按比例缩放。
             }
 
-            // 为每个显示区域注册悬停提示，后续 BindCallbacks 会更新为具体流程名
-            for (int i = 0; i < pictureBoxes.Count; i++)
+            // 为每个显示区域预留默认悬停提示文本，后续如果恢复 RegisterHoverText，可在这里统一注册。
+            for (int i = 0; i < pictureBoxes.Count; i++) // 遍历每一个图片显示区域。
             {
-                string defaultTip = i == 0 ? "流程 1：主结果画面" : $"流程 {i + 1}：辅助画面";
+                string defaultTip = i == 0 ? "流程 1：主结果画面" : $"流程 {i + 1}：辅助画面"; // 根据显示索引构建默认提示文字。
                 
             }
         }
@@ -142,14 +143,14 @@ namespace VMDemo
                     continue; // 如果未获取到流程对象则跳过。
                 }
 
-                string processName = infoList.astProcessInfo[i].strProcessName;
+                string processName = infoList.astProcessInfo[i].strProcessName; // 读取当前有效流程名称。
                 procedure.OnWorkEndStatusCallBack += OnWorkEnd; // 绑定统一的流程执行结束回调。
                 _procedureIndexMap[procedure] = pictureIndex; // 保存当前流程对象和对应图片框索引的映射关系。
                 _procedureNames.Add(processName); // 按顺序保存流程名称。
 
-                if (pictureIndex < pictureBoxes.Count)
+                if (pictureIndex < pictureBoxes.Count) // 判断当前流程是否有对应的图片显示区域。
                 {
-                    string tip = pictureIndex == 0
+                    string tip = pictureIndex == 0 // 根据主流程/辅助流程构建更具体的悬浮提示文本。
                         ? $"流程：{processName}（主结果画面）\n输出：Img、ROI、COUNT、out"
                         : $"流程：{processName}\n输出：Img、ROI、COUNT";
                     
@@ -159,5 +160,5 @@ namespace VMDemo
             }
         }
         #endregion
-    }
-}
+    } // 类结束。
+} // 命名空间结束。

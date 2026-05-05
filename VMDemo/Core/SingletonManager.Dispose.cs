@@ -1,9 +1,9 @@
 using VM.Core;
 
-namespace VMDemo
-{
-    public sealed partial class SingletonManager
-    {
+namespace VMDemo // 定义当前项目命名空间。
+{ // 命名空间开始。
+    public sealed partial class SingletonManager // 声明 SingletonManager 分部类，本文件负责资源释放。
+    { // 类开始。
         #region 释放资源
         /// <summary>
         /// 释放当前方案及相关缓存资源。
@@ -24,5 +24,5 @@ namespace VMDemo
             VmSolution.Instance.Dispose(); // 释放当前已加载的方案实例资源。
         }
         #endregion
-    }
-}
+    } // 类结束。
+} // 命名空间结束。

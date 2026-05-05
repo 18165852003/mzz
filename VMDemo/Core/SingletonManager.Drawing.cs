@@ -225,30 +225,30 @@ namespace VMDemo
         /// <returns>返回绘制完成后的 Bitmap 对象。</returns>
         private Bitmap DrawText(Bitmap bitmap, string text, VM.PlatformSDKCS.PointF position, Color color, float fontSize = 20f)
         {
-            if (bitmap == null || string.IsNullOrWhiteSpace(text))
+            if (bitmap == null || string.IsNullOrWhiteSpace(text)) // 判断图像或文字是否有效。
             {
-                return bitmap;
+                return bitmap; // 无法绘制时直接返回原图，避免空引用异常。
             }
 
-            bitmap = EnsureDrawable(bitmap);
+            bitmap = EnsureDrawable(bitmap); // 确保图像格式支持 GDI+ 绘制。
 
-            using (Graphics graphics = Graphics.FromImage(bitmap))
-            using (Font font = new Font("微软雅黑", fontSize, FontStyle.Bold))
-            using (SolidBrush textBrush = new SolidBrush(color))
-            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(128, 0, 0, 0)))
+            using (Graphics graphics = Graphics.FromImage(bitmap)) // 基于目标图像创建绘图对象。
+            using (Font font = new Font("微软雅黑", fontSize, FontStyle.Bold)) // 创建用于绘制叠加文字的字体。
+            using (SolidBrush textBrush = new SolidBrush(color)) // 创建文字画刷。
+            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(128, 0, 0, 0))) // 创建半透明黑色背景画刷，提升文字可读性。
             {
-                graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+                graphics.SmoothingMode = SmoothingMode.AntiAlias; // 开启图形抗锯齿。
+                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias; // 开启文字抗锯齿。
 
-                SizeF textSize = graphics.MeasureString(text, font);
-                float x = position.X;
-                float y = position.Y;
+                SizeF textSize = graphics.MeasureString(text, font); // 计算文字占用区域，便于绘制背景框。
+                float x = position.X; // 获取文字左上角 X 坐标。
+                float y = position.Y; // 获取文字左上角 Y 坐标。
 
-                graphics.FillRectangle(bgBrush, x - 2, y - 2, textSize.Width + 4, textSize.Height + 4);
-                graphics.DrawString(text, font, textBrush, x, y);
+                graphics.FillRectangle(bgBrush, x - 2, y - 2, textSize.Width + 4, textSize.Height + 4); // 绘制文字底部半透明背景。
+                graphics.DrawString(text, font, textBrush, x, y); // 绘制文字内容。
             }
 
-            return bitmap;
+            return bitmap; // 返回绘制后的图像。
         }
 
         /// <summary>
@@ -261,38 +261,38 @@ namespace VMDemo
         /// <returns>返回绘制完成后的 Bitmap 对象。</returns>
         private Bitmap DrawTextList(Bitmap bitmap, List<Tuple<string, VM.PlatformSDKCS.PointF>> textItems, Color color, float fontSize = 20f)
         {
-            if (bitmap == null || textItems == null || textItems.Count == 0)
+            if (bitmap == null || textItems == null || textItems.Count == 0) // 判断图像和文字列表是否有效。
             {
-                return bitmap;
+                return bitmap; // 没有可绘制内容时直接返回原图。
             }
 
-            bitmap = EnsureDrawable(bitmap);
+            bitmap = EnsureDrawable(bitmap); // 确保图像格式支持 GDI+ 绘制。
 
-            using (Graphics graphics = Graphics.FromImage(bitmap))
-            using (Font font = new Font("微软雅黑", fontSize, FontStyle.Bold))
-            using (SolidBrush textBrush = new SolidBrush(color))
-            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(128, 0, 0, 0)))
+            using (Graphics graphics = Graphics.FromImage(bitmap)) // 基于目标图像创建绘图对象。
+            using (Font font = new Font("微软雅黑", fontSize, FontStyle.Bold)) // 创建统一的叠加文字字体。
+            using (SolidBrush textBrush = new SolidBrush(color)) // 创建文字画刷。
+            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(128, 0, 0, 0))) // 创建半透明背景画刷。
             {
-                graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+                graphics.SmoothingMode = SmoothingMode.AntiAlias; // 开启图形抗锯齿。
+                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias; // 开启文字抗锯齿。
 
-                foreach (Tuple<string, VM.PlatformSDKCS.PointF> item in textItems)
+                foreach (Tuple<string, VM.PlatformSDKCS.PointF> item in textItems) // 遍历每一条待绘制的文字。
                 {
-                    if (string.IsNullOrWhiteSpace(item.Item1))
+                    if (string.IsNullOrWhiteSpace(item.Item1)) // 跳过空文字，避免绘制无意义内容。
                     {
-                        continue;
+                        continue; // 继续处理下一条文字。
                     }
 
-                    SizeF textSize = graphics.MeasureString(item.Item1, font);
-                    float x = item.Item2.X;
-                    float y = item.Item2.Y;
+                    SizeF textSize = graphics.MeasureString(item.Item1, font); // 测量当前文字区域大小。
+                    float x = item.Item2.X; // 获取当前文字 X 坐标。
+                    float y = item.Item2.Y; // 获取当前文字 Y 坐标。
 
-                    graphics.FillRectangle(bgBrush, x - 2, y - 2, textSize.Width + 4, textSize.Height + 4);
-                    graphics.DrawString(item.Item1, font, textBrush, x, y);
+                    graphics.FillRectangle(bgBrush, x - 2, y - 2, textSize.Width + 4, textSize.Height + 4); // 先绘制文字背景框。
+                    graphics.DrawString(item.Item1, font, textBrush, x, y); // 再绘制文字内容。
                 }
             }
 
-            return bitmap;
+            return bitmap; // 返回绘制后的图像。
         }
         #endregion
     }

@@ -59,6 +59,7 @@
             this.uiTableLayoutPanel2.Size = new System.Drawing.Size(1295, 908);
             this.uiTableLayoutPanel2.TabIndex = 0;
             this.uiTableLayoutPanel2.TagString = null;
+            this.uiTableLayoutPanel2.Paint += new System.Windows.Forms.PaintEventHandler(this.uiTableLayoutPanel2_Paint);
             // 
             // pictureBox1
             // 

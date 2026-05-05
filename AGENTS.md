@@ -14,6 +14,7 @@
 
 本项目已整理为 Codex skill：
 
+- Skill 显示名称：`VMDemo VisionMaster`
 - Skill 名称：`$vmdemo-visionmaster`
 - Skill 文件：`C:\Users\33826\.codex\skills\vmdemo-visionmaster\SKILL.md`
 

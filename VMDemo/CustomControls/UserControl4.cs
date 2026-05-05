@@ -18,5 +18,9 @@ namespace VMDemo.Contro
             AutoScaleMode = AutoScaleMode.None; // 禁用当前用户控件自动缩放，防止执行时布局被重新计算。
         }
 
+        private void uiTableLayoutPanel2_Paint(object sender, PaintEventArgs e)
+        {
+
+        }
     }
 }

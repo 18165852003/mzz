@@ -16,6 +16,8 @@ namespace VMDemo
 
         private string selectedProcessName;
 
+        private const int MaxUiLogCount = 1000; // 主界面最多保留的日志条数，避免长时间运行后 ListBox 无限增长。
+
         public MainForm()
         {
             InitializeComponent(); // 初始化窗体中的所有界面组件。
@@ -52,6 +54,7 @@ namespace VMDemo
         {
             try
             {
+                // 加载方案只负责初始化 VisionMaster 流程和显示区域；TCP 服务端在窗体加载时已经可提前监听。
                 using (OpenFileDialog dialog = new OpenFileDialog())
                 {
                     dialog.Filter = "方案路径|*.sol";
@@ -77,12 +80,14 @@ namespace VMDemo
         {
             try
             {
+                // 单次执行必须先有已加载方案，否则 TCP 客户端下发的 RoundId 只能停留在等待执行状态。
                 if (!SingletonManager.Instance.IsLoaded)
                 {
                     MessageBox.Show("请先加载方案");
                     return;
                 }
 
+                // TCP 接收到 ROUND|RoundId 后会先缓存为 PendingRoundId，这里负责把“没有业务号”的点击挡住。
                 if (!SingletonManager.Instance.HasPendingRoundId)
                 {
                     MessageBox.Show("请先由 TCP 客户端发送 RoundId");
@@ -105,12 +110,13 @@ namespace VMDemo
         #region 窗体加载时自动启动 TCP 服务端
         /// <summary>
         /// 主窗体加载完成后，后台尝试自动启动 TCP 服务端监听。
+        /// 这一步早于加载 .sol 方案，目的是允许外部客户端先连上并下发 RoundId。
         /// 成功或失败都只写日志，不阻塞主界面。
         /// </summary>
         private void MainForm_Load(object sender, EventArgs e)
         {
             SingletonManager.Instance.LogReceived += OnLogReceived;
-            foreach (string log in SingletonManager.Instance.GetLogHistory())
+            foreach (LogEntry log in SingletonManager.Instance.GetLogHistory())
             {
                 AppendLog(log);
             }
@@ -134,28 +140,38 @@ namespace VMDemo
         /// <summary>
         /// 日志接收回调方法，确保在UI线程上执行日志追加操作
         /// </summary>
-        /// <param name="message">日志消息内容</param>
-        private void OnLogReceived(string message)
+        /// <param name="entry">日志实体，包含时间、级别和正文。</param>
+        private void OnLogReceived(LogEntry entry)
         {
             // 判断当前调用线程是否为UI线程（非UI线程时InvokeRequired为true）
             if (Log.InvokeRequired)
                 // 非UI线程：通过BeginInvoke异步将日志追加操作调度到UI线程执行，避免跨线程访问控件异常
-                Log.BeginInvoke(new Action(() => AppendLog(message)));
+                Log.BeginInvoke(new Action(() => AppendLog(entry)));
             else
                 // UI线程：直接调用AppendLog追加日志
-                AppendLog(message);
+                AppendLog(entry);
         }
 
         /// <summary>
         /// 将日志消息追加到ListBox控件中，并自动滚动到底部
         /// </summary>
-        /// <param name="message">日志消息内容</param>
-        private void AppendLog(string message)
+        /// <param name="entry">日志实体，包含时间、级别和正文。</param>
+        private void AppendLog(LogEntry entry)
         {
-            // 在日志消息前添加精确到毫秒的时间戳，并添加到ListBox列表末尾
-            Log.Items.Add($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss:fff}] {message}");
+            if (entry == null) return;
+
+            // 直接保存日志实体，绘制时可读取 Level，避免用文本关键字猜测颜色。
+            Log.Items.Add(entry);
+            while (Log.Items.Count > MaxUiLogCount)
+            {
+                Log.Items.RemoveAt(0);
+            }
+
             // 设置ListBox的TopIndex为最后一项，实现自动滚动到最新日志的效果
-            Log.TopIndex = Log.Items.Count - 1;
+            if (Log.Items.Count > 0)
+            {
+                Log.TopIndex = Log.Items.Count - 1;
+            }
         }
 
         /// <summary>
@@ -168,14 +184,13 @@ namespace VMDemo
 
             // 判断当前绘制项是否处于选中状态（通过位与运算检查Selected标志位）
             bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            // 获取当前项的文本内容，用于后续关键字判断和绘制
-            string text = Log.ListBox.Items[e.Index].ToString();
-            // 判断是否为错误类日志：包含"失败"、"异常"、"错误"、"报警"任一关键字
-            bool isError = text.Contains("失败") || text.Contains("异常") || text.Contains("错误") || text.Contains("报警");
+            // 获取当前项的日志实体，用于按级别绘制文本颜色。
+            LogEntry entry = Log.ListBox.Items[e.Index] as LogEntry;
+            string text = entry == null ? Log.ListBox.Items[e.Index].ToString() : entry.ToString();
             // 背景色：选中时使用深灰色(55,58,62)，未选中时使用控件默认背景色
             Color bgColor = isSelected ? Color.FromArgb(55, 58, 62) : Log.BackColor;
-            // 文本色：错误日志使用红色，正常日志使用绿色(Lime)
-            Color textColor = isError ? Color.Red : Color.Lime;
+            // 文本色：按日志级别固定显示，避免错误日志因文案不同被误判。
+            Color textColor = GetLogTextColor(entry);
 
             // 创建背景色画刷，using确保绘制完成后自动释放资源
             using (Brush bgBrush = new SolidBrush(bgColor))
@@ -186,6 +201,27 @@ namespace VMDemo
                 e.Graphics.FillRectangle(bgBrush, e.Bounds);
                 // 在绘制区域内使用指定颜色绘制日志文本
                 e.Graphics.DrawString(text, e.Font, textBrush, e.Bounds);
+            }
+        }
+
+        /// <summary>
+        /// 根据日志级别返回主界面显示颜色。
+        /// </summary>
+        private Color GetLogTextColor(LogEntry entry)
+        {
+            if (entry == null)
+            {
+                return Color.Lime;
+            }
+
+            switch (entry.Level)
+            {
+                case LogLevel.Error:
+                    return Color.Red;
+                case LogLevel.Warning:
+                    return Color.Orange;
+                default:
+                    return Color.Lime;
             }
         }
 

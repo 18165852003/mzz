@@ -14,6 +14,8 @@ namespace VMDemo                                 // 定义项目命名空间
     public sealed partial class SingletonManager // 声明单例管理器的partial分部类，本文件负责TCP通信功能
     {
         #region TCP 通讯
+        // TCP 只负责通信、配置、连接管理和 RoundId 命令接收。
+        // VisionMaster 方案是否加载、流程是否执行，由 MainForm 和 SingletonManager.Run.cs 继续门控。
 
         /// <summary>
         /// TCP 配置类，用于保存和读取本地 TCP 服务端参数。
@@ -43,76 +45,51 @@ namespace VMDemo                                 // 定义项目命名空间
         private TcpConfig _tcpConfig;                       // TCP配置缓存实例，避免重复读取配置文件
 
         /// <summary>
-        /// 获取 TCP 服务端是否已经启动监听。
-        /// </summary>
-        public bool IsTcpServerRunning            // 公开属性：判断TCP服务端是否正在运行
-        {
-            get
-            {
-                lock (_tcpLock)                   // 加锁确保线程安全
-                {
-                    return _tcpListener != null;  // 监听器不为null表示服务端已启动
-                }
-            }
-        }
-
-        /// <summary>
-        /// 获取是否已有客户端连接。
-        /// </summary>
-        public bool IsTcpClientConnected          // 公开属性：判断是否有客户端连接
-        {
-            get
-            {
-                lock (_tcpLock)                   // 加锁确保线程安全
-                {
-                    return _tcpClient != null && _tcpClient.Connected; // 客户端不为null且处于已连接状态
-                }
-            }
-        }
-
-        /// <summary>
         /// TCP 日志事件，SingletonManager 只负责抛出日志，TCPForm 负责显示。
         /// </summary>
         public event Action<string> TcpLogReceived; // 定义TCP日志事件，外部订阅此事件接收TCP日志
 
         /// <summary>
-        /// 记录 TCP 日志，并同步缓存到历史列表。
+        /// 程序启动后自动读取配置，如果 AutoStart=true 则后台启动 TCP 服务端监听。
+        /// 该逻辑不依赖 VisionMaster 方案是否已经加载，所以主界面刚打开时就可以监听客户端。
+        /// 启动失败只记录日志，不弹窗阻塞主界面。
         /// </summary>
-        private void AppendTcpLog(string message) // 私有方法：追加TCP日志
+        public void TryAutoStartTcpServer()       // 公开方法：尝试自动启动TCP服务端
         {
-            Trace.WriteLine($"[TCP] {message}");  // 输出到调试输出窗口，便于开发调试
-
-            lock (_tcpLock)                       // 加锁保护日志历史列表
+            try
             {
-                _tcpLogHistory.Add(message);      // 将日志消息添加到历史列表末尾
-                if (_tcpLogHistory.Count > 200)   // 如果历史记录超过200条
+                _tcpConfig = LoadTcpConfig();     // 从文件加载TCP配置
+                if (!_tcpConfig.AutoStart)        // 检查是否启用自动启动
                 {
-                    _tcpLogHistory.RemoveAt(0);   // 移除最早的一条日志，防止内存无限增长
+                    AppendTcpLog("自动启动已关闭，跳过 TCP 服务端启动。", LogLevel.Warning); // 自动启动关闭，记录日志
+                    return;                       // 不自动启动，直接返回
                 }
+
+                string ip = _tcpConfig.ServerIp;  // 获取配置中的监听IP
+                int port = _tcpConfig.ServerPort; // 获取配置中的监听端口
+                // 校验IP和端口是否有效
+                if (string.IsNullOrWhiteSpace(ip) || port <= 0 || port > 65535)
+                {
+                    AppendTcpLog("自动启动失败：配置中的 IP 或端口无效。", LogLevel.Error); // 配置无效，记录日志
+                    return;                       // 配置无效，直接返回
+                }
+
+                Task.Run(() =>                    // 在后台线程中启动TCP服务端，避免阻塞主线程
+                {
+                    try
+                    {
+                        StartTcpServer(ip, port); // 调用启动TCP服务端方法
+                    }
+                    catch (Exception ex)          // 捕获启动过程中的异常
+                    {
+                        AppendTcpLog($"自动启动 TCP 服务端失败：{ex.Message}", LogLevel.Error); // 记录启动失败日志
+                    }
+                });
             }
-
-            TcpLogReceived?.Invoke(message);      // 触发TCP日志事件，通知外部订阅者（如TCPForm）
-            AppendLog($"[TCP] {message}");        // 同时追加到应用级主日志，确保日志不丢失
-        }
-
-        /// <summary>
-        /// 获取已经产生的 TCP 日志快照，用于 TCPForm 打开后补显示启动阶段日志。
-        /// </summary>
-        public List<string> GetTcpLogHistory()    // 公开方法：获取TCP日志历史快照
-        {
-            lock (_tcpLock)                       // 加锁确保线程安全
+            catch (Exception ex)                  // 捕获加载配置过程中的异常
             {
-                return new List<string>(_tcpLogHistory); // 返回历史列表的副本，避免外部修改原列表
+                AppendTcpLog($"自动启动异常：{ex.Message}", LogLevel.Error); // 记录异常日志
             }
-        }
-
-        /// <summary>
-        /// 获取配置文件的完整路径。
-        /// </summary>
-        private string GetTcpConfigPath()         // 私有方法：获取TCP配置文件路径
-        {
-            string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config"); // 拼接config子目录路径
-            return Path.Combine(dir, "tcp_config.json"); // 返回完整的配置文件路径：程序目录/config/tcp_config.json
         }
 
         /// <summary>
@@ -137,7 +114,7 @@ namespace VMDemo                                 // 定义项目命名空间
                 // 校验配置有效性：配置不为null、IP不为空白、端口在1-65535范围内
                 if (config == null || string.IsNullOrWhiteSpace(config.ServerIp) || config.ServerPort <= 0 || config.ServerPort > 65535)
                 {
-                    AppendTcpLog("配置文件内容无效，使用默认配置。"); // 记录配置无效的日志
+                    AppendTcpLog("配置文件内容无效，使用默认配置。", LogLevel.Warning); // 记录配置无效的日志
                     // 返回默认配置
                     return new TcpConfig { ServerIp = "127.0.0.1", ServerPort = 7777, AutoStart = true };
                 }
@@ -146,182 +123,19 @@ namespace VMDemo                                 // 定义项目命名空间
             }
             catch (Exception ex)                  // 捕获读取或反序列化过程中的异常
             {
-                AppendTcpLog($"读取配置文件失败：{ex.Message}，使用默认配置。"); // 记录异常日志
+                AppendTcpLog($"读取配置文件失败：{ex.Message}，使用默认配置。", LogLevel.Error); // 记录异常日志
                 // 返回默认配置，确保程序能正常启动
                 return new TcpConfig { ServerIp = "127.0.0.1", ServerPort = 7777, AutoStart = true };
             }
         }
 
         /// <summary>
-        /// 保存监听 IP、监听端口到本地 json 文件，自动设置 AutoStart=true。
+        /// 获取配置文件的完整路径。
         /// </summary>
-        public void SaveTcpConfig(string serverIp, int serverPort) // 公开方法：保存TCP配置到文件
+        private string GetTcpConfigPath()         // 私有方法：获取TCP配置文件路径
         {
-            if (string.IsNullOrWhiteSpace(serverIp)) // 校验IP地址是否为空或空白
-            {
-                AppendTcpLog("保存失败：IP 地址不能为空。"); // 记录校验失败日志
-                return;                               // 校验不通过，直接返回
-            }
-
-            if (serverPort <= 0 || serverPort > 65535) // 校验端口号是否在有效范围内
-            {
-                AppendTcpLog("保存失败：端口号必须在 1-65535 范围内。"); // 记录校验失败日志
-                return;                               // 校验不通过，直接返回
-            }
-
-            TcpConfig config = new TcpConfig      // 创建新的配置对象
-            {
-                ServerIp = serverIp,              // 设置监听IP地址
-                ServerPort = serverPort,          // 设置监听端口号
-                AutoStart = true,                 // 保存后自动设置为自动启动模式
-                LastSavedTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") // 记录当前保存时间
-            };
-
-            try
-            {
-                string path = GetTcpConfigPath(); // 获取配置文件完整路径
-                string dir = Path.GetDirectoryName(path); // 获取配置文件所在目录路径
-                if (!Directory.Exists(dir))       // 检查目录是否存在
-                {
-                    Directory.CreateDirectory(dir); // 目录不存在则创建
-                }
-
-                JavaScriptSerializer serializer = new JavaScriptSerializer(); // 创建JSON序列化器实例
-                string json = serializer.Serialize(config); // 将配置对象序列化为JSON字符串
-                File.WriteAllText(path, json, Encoding.UTF8); // 以UTF8编码将JSON写入配置文件
-                _tcpConfig = config;              // 更新内存中的配置缓存
-                AppendTcpLog($"配置已保存：{serverIp}:{serverPort}"); // 记录保存成功日志
-            }
-            catch (Exception ex)                  // 捕获写入文件过程中的异常
-            {
-                AppendTcpLog($"保存配置文件失败：{ex.Message}"); // 记录保存失败的异常日志
-            }
-        }
-
-        /// <summary>
-        /// 获取当前缓存的 TCP 配置，如果未缓存则从文件加载。
-        /// </summary>
-        private TcpConfig GetTcpConfig()          // 私有方法：获取TCP配置（带缓存）
-        {
-            if (_tcpConfig == null)               // 检查缓存是否为空
-            {
-                _tcpConfig = LoadTcpConfig();     // 缓存为空时从文件加载配置
-            }
-
-            return _tcpConfig;                    // 返回缓存的配置对象
-        }
-
-        /// <summary>
-        /// 获取当前缓存的 TCP 配置中的监听 IP。
-        /// </summary>
-        public string GetTcpConfigIp()            // 公开方法：获取配置中的监听IP
-        {
-            return GetTcpConfig().ServerIp;       // 返回配置中的ServerIp属性值
-        }
-
-        /// <summary>
-        /// 获取当前缓存的 TCP 配置中的监听端口。
-        /// </summary>
-        public int GetTcpConfigPort()             // 公开方法：获取配置中的监听端口
-        {
-            return GetTcpConfig().ServerPort;     // 返回配置中的ServerPort属性值
-        }
-
-        /// <summary>
-        /// 程序启动后自动读取配置，如果 AutoStart=true 则后台启动 TCP 服务端监听。
-        /// 启动失败只记录日志，不弹窗阻塞主界面。
-        /// </summary>
-        public void TryAutoStartTcpServer()       // 公开方法：尝试自动启动TCP服务端
-        {
-            try
-            {
-                _tcpConfig = LoadTcpConfig();     // 从文件加载TCP配置
-                if (!_tcpConfig.AutoStart)        // 检查是否启用自动启动
-                {
-                    AppendTcpLog("自动启动已关闭，跳过 TCP 服务端启动。"); // 自动启动关闭，记录日志
-                    return;                       // 不自动启动，直接返回
-                }
-
-                string ip = _tcpConfig.ServerIp;  // 获取配置中的监听IP
-                int port = _tcpConfig.ServerPort; // 获取配置中的监听端口
-                // 校验IP和端口是否有效
-                if (string.IsNullOrWhiteSpace(ip) || port <= 0 || port > 65535)
-                {
-                    AppendTcpLog("自动启动失败：配置中的 IP 或端口无效。"); // 配置无效，记录日志
-                    return;                       // 配置无效，直接返回
-                }
-
-                Task.Run(() =>                    // 在后台线程中启动TCP服务端，避免阻塞主线程
-                {
-                    try
-                    {
-                        StartTcpServer(ip, port); // 调用启动TCP服务端方法
-                    }
-                    catch (Exception ex)          // 捕获启动过程中的异常
-                    {
-                        AppendTcpLog($"自动启动 TCP 服务端失败：{ex.Message}"); // 记录启动失败日志
-                    }
-                });
-            }
-            catch (Exception ex)                  // 捕获加载配置过程中的异常
-            {
-                AppendTcpLog($"自动启动异常：{ex.Message}"); // 记录异常日志
-            }
-        }
-
-        /// <summary>
-        /// 校验 IP 和端口是否有效，并输出解析后的 IPAddress。
-        /// </summary>
-        private bool ValidateTcpEndpoint(string serverIp, int serverPort, out IPAddress ipAddress) // 私有方法：校验TCP端点参数
-        {
-            ipAddress = null;                     // 初始化输出参数为null
-
-            if (string.IsNullOrWhiteSpace(serverIp)) // 校验IP地址是否为空或空白
-            {
-                AppendTcpLog("启动失败：监听 IP 地址不能为空。"); // 记录校验失败日志
-                return false;                     // 返回校验失败
-            }
-
-            if (serverPort <= 0 || serverPort > 65535) // 校验端口号是否在有效范围内
-            {
-                AppendTcpLog("启动失败：端口号必须在 1-65535 范围内。"); // 记录校验失败日志
-                return false;                     // 返回校验失败
-            }
-
-            try
-            {
-                ipAddress = IPAddress.Parse(serverIp); // 将IP字符串解析为IPAddress对象
-            }
-            catch                                 // 解析失败时捕获异常
-            {
-                AppendTcpLog($"启动失败：IP 地址格式无效：{serverIp}"); // 记录IP格式错误日志
-                return false;                     // 返回校验失败
-            }
-
-            return true;                          // 所有校验通过，返回成功
-        }
-
-        /// <summary>
-        /// 关闭当前已连接的客户端及其网络流，并清空字段。
-        /// 调用方需要自行持有 _tcpLock。
-        /// </summary>
-        private void CloseCurrentTcpClient()      // 私有方法：关闭当前TCP客户端连接
-        {
-            try { _tcpStream?.Close(); } catch { } // 安全关闭网络流，忽略可能的异常
-            try { _tcpClient?.Close(); } catch { } // 安全关闭TCP客户端，忽略可能的异常
-
-            _tcpStream = null;                    // 清空网络流引用
-            _tcpClient = null;                    // 清空客户端引用
-        }
-
-        /// <summary>
-        /// 清空 TCP 服务端监听器和取消令牌字段。
-        /// 调用方需要自行持有 _tcpLock。
-        /// </summary>
-        private void ClearTcpServerState()        // 私有方法：清空TCP服务端状态
-        {
-            _tcpListener = null;                  // 清空监听器引用
-            _tcpServerCts = null;                 // 清空取消令牌源引用
+            string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config"); // 拼接config子目录路径
+            return Path.Combine(dir, "tcp_config.json"); // 返回完整的配置文件路径：程序目录/config/tcp_config.json
         }
 
         /// <summary>
@@ -334,7 +148,7 @@ namespace VMDemo                                 // 定义项目命名空间
             {
                 if (_tcpListener != null)         // 检查监听器是否已存在
                 {
-                    AppendTcpLog("TCP 服务端已在运行，请勿重复启动。"); // 服务端已运行，记录日志
+                    AppendTcpLog("TCP 服务端已在运行，请勿重复启动。", LogLevel.Warning); // 服务端已运行，记录日志
                     return;                       // 已在运行，直接返回
                 }
             }
@@ -364,26 +178,41 @@ namespace VMDemo                                 // 定义项目命名空间
             }
             catch (Exception ex)                  // 捕获启动过程中的异常
             {
-                AppendTcpLog($"TCP 服务端启动失败：{ex.Message}"); // 记录启动失败日志
+                AppendTcpLog($"TCP 服务端启动失败：{ex.Message}", LogLevel.Error); // 记录启动失败日志
                 throw;                            // 重新抛出异常，让调用方知道启动失败
             }
         }
 
         /// <summary>
-        /// 停止 TCP 服务端，断开当前客户端，停止监听和接收循环。
-        /// 可以重复调用，多次调用不抛异常。
+        /// 校验 IP 和端口是否有效，并输出解析后的 IPAddress。
         /// </summary>
-        public void StopTcpServer()               // 公开方法：停止TCP服务端
+        private bool ValidateTcpEndpoint(string serverIp, int serverPort, out IPAddress ipAddress) // 私有方法：校验TCP端点参数
         {
-            lock (_tcpLock)                       // 加锁确保线程安全
+            ipAddress = null;                     // 初始化输出参数为null
+
+            if (string.IsNullOrWhiteSpace(serverIp)) // 校验IP地址是否为空或空白
             {
-                try { _tcpServerCts?.Cancel(); } catch { } // 安全取消后台任务，忽略异常
-                CloseCurrentTcpClient();          // 关闭当前已连接的客户端
-                try { _tcpListener?.Stop(); } catch { } // 安全停止监听器，忽略异常
-                ClearTcpServerState();            // 清空服务端状态字段
+                AppendTcpLog("启动失败：监听 IP 地址不能为空。", LogLevel.Error); // 记录校验失败日志
+                return false;                     // 返回校验失败
             }
 
-            AppendTcpLog("TCP 服务端已停止。");   // 记录服务端停止日志
+            if (serverPort <= 0 || serverPort > 65535) // 校验端口号是否在有效范围内
+            {
+                AppendTcpLog("启动失败：端口号必须在 1-65535 范围内。", LogLevel.Error); // 记录校验失败日志
+                return false;                     // 返回校验失败
+            }
+
+            try
+            {
+                ipAddress = IPAddress.Parse(serverIp); // 将IP字符串解析为IPAddress对象
+            }
+            catch                                 // 解析失败时捕获异常
+            {
+                AppendTcpLog($"启动失败：IP 地址格式无效：{serverIp}", LogLevel.Error); // 记录IP格式错误日志
+                return false;                     // 返回校验失败
+            }
+
+            return true;                          // 所有校验通过，返回成功
         }
 
         /// <summary>
@@ -414,7 +243,7 @@ namespace VMDemo                                 // 定义项目命名空间
                     {
                         if (!ct.IsCancellationRequested) // 仅在非取消状态下记录异常
                         {
-                            AppendTcpLog($"等待客户端连接异常：{ex.Message}"); // 记录连接异常日志
+                            AppendTcpLog($"等待客户端连接异常：{ex.Message}", LogLevel.Error); // 记录连接异常日志
                         }
                     }
                 }
@@ -422,7 +251,21 @@ namespace VMDemo                                 // 定义项目命名空间
         }
 
         /// <summary>
+        /// 关闭当前已连接的客户端及其网络流，并清空字段。
+        /// 调用方需要自行持有 _tcpLock。
+        /// </summary>
+        private void CloseCurrentTcpClient()      // 私有方法：关闭当前TCP客户端连接
+        {
+            try { _tcpStream?.Close(); } catch { } // 安全关闭网络流，忽略可能的异常
+            try { _tcpClient?.Close(); } catch { } // 安全关闭TCP客户端，忽略可能的异常
+
+            _tcpStream = null;                    // 清空网络流引用
+            _tcpClient = null;                    // 清空客户端引用
+        }
+
+        /// <summary>
         /// 后台循环接收当前客户端发来的消息。
+        /// 收到的数据只在 TCP 层解析为命令，不直接触发 VisionMaster 流程执行。
         /// </summary>
         private void ReceiveClientLoop(TcpClient client, NetworkStream stream, CancellationToken ct) // 私有方法：数据接收循环
         {
@@ -438,7 +281,7 @@ namespace VMDemo                                 // 定义项目命名空间
                         int bytesRead = stream.Read(buffer, 0, buffer.Length); // 同步读取客户端数据到缓冲区
                         if (bytesRead == 0)       // 读取到0字节表示客户端已断开连接
                         {
-                            AppendTcpLog("客户端已断开连接。"); // 记录客户端断开日志
+                            AppendTcpLog("客户端已断开连接。", LogLevel.Warning); // 记录客户端断开日志
                             break;                // 跳出接收循环
                         }
 
@@ -451,7 +294,7 @@ namespace VMDemo                                 // 定义项目命名空间
                 {
                     if (!ct.IsCancellationRequested) // 仅在非取消状态下记录异常
                     {
-                        AppendTcpLog($"接收客户端数据异常：{ex.Message}"); // 记录接收异常日志
+                        AppendTcpLog($"接收客户端数据异常：{ex.Message}", LogLevel.Error); // 记录接收异常日志
                     }
                 }
                 finally                           // 无论正常结束还是异常都会执行
@@ -470,22 +313,26 @@ namespace VMDemo                                 // 定义项目命名空间
         /// <summary>
         /// 处理 TCP 客户端发来的测试阶段 RoundId 下发协议。
         /// 当前支持格式：ROUND|R001，可一次接收多行命令。
+        /// 接收成功只表示 RoundId 进入等待执行状态；是否能执行还要等主界面加载方案并点击单次执行。
         /// </summary>
         private void HandleTcpClientMessage(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
             {
+                // 空消息没有协议头，直接返回通用格式错误。
                 SendTcpMessage("ERR|BAD_COMMAND");
                 return;
             }
 
+            // 一个 TCP 包里可能带多行命令，这里逐行处理，避免粘包时只处理第一条。
             string[] commands = message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (string command in commands)
             {
                 string roundId;
                 if (!TryParseRoundCommand(command, out roundId))
                 {
-                    AppendTcpLog($"未知客户端命令：{command.Trim()}");
+                    // 当前协议只接受 ROUND|RoundId，其他命令统一视为未知命令。
+                    AppendTcpLog($"未知客户端命令：{command.Trim()}", LogLevel.Warning);
                     SendTcpMessage("ERR|BAD_COMMAND");
                     continue;
                 }
@@ -494,22 +341,26 @@ namespace VMDemo                                 // 定义项目命名空间
                 RoundAcceptResult acceptResult = TryAcceptRoundId(roundId, out errorMessage);
                 if (acceptResult == RoundAcceptResult.Accepted)
                 {
+                    // ACK 只表示服务端已缓存该 RoundId，等待操作员点击单次执行。
                     AppendTcpLog($"已接收RoundId：{roundId}，等待单次执行。");
                     SendTcpMessage($"ACK|{roundId}|READY");
                 }
                 else if (acceptResult == RoundAcceptResult.Used)
                 {
-                    AppendTcpLog($"RoundId接收失败：{errorMessage}");
+                    // 已消费过的 RoundId 不能再次进入待执行状态，防止重复测试或重复回传结果。
+                    AppendTcpLog($"RoundId接收失败：{errorMessage}", LogLevel.Error);
                     SendTcpMessage($"ERR|ROUND_USED|{roundId}");
                 }
                 else if (acceptResult == RoundAcceptResult.Busy)
                 {
-                    AppendTcpLog($"RoundId接收失败：{errorMessage}");
+                    // 已有待执行或正在执行的 RoundId 时，先要求客户端等待当前轮次结束。
+                    AppendTcpLog($"RoundId接收失败：{errorMessage}", LogLevel.Error);
                     SendTcpMessage($"BUSY|{roundId}");
                 }
                 else
                 {
-                    AppendTcpLog($"RoundId接收失败：{errorMessage}");
+                    // RoundId 为空或格式不符合状态机要求时，返回 BAD_ROUND。
+                    AppendTcpLog($"RoundId接收失败：{errorMessage}", LogLevel.Error);
                     SendTcpMessage($"ERR|BAD_ROUND|{roundId}");
                 }
             }
@@ -540,12 +391,13 @@ namespace VMDemo                                 // 定义项目命名空间
 
         /// <summary>
         /// 服务端主动发送文本给当前已连接的客户端。
+        /// 本方法不会自动追加换行；如果客户端按行读取，需要双方在协议里约定换行符。
         /// </summary>
         public void SendTcpMessage(string message) // 公开方法：向已连接客户端发送消息
         {
             if (string.IsNullOrEmpty(message))    // 校验消息内容是否为空
             {
-                AppendTcpLog("发送失败：消息内容为空。"); // 消息为空，记录日志
+                AppendTcpLog("发送失败：消息内容为空。", LogLevel.Error); // 消息为空，记录日志
                 return;                           // 直接返回不发送
             }
 
@@ -553,14 +405,14 @@ namespace VMDemo                                 // 定义项目命名空间
             {
                 if (_tcpListener == null)         // 检查TCP服务端是否已启动
                 {
-                    AppendTcpLog("发送失败：TCP 服务端未启动。"); // 服务端未启动，记录日志
+                    AppendTcpLog("发送失败：TCP 服务端未启动。", LogLevel.Error); // 服务端未启动，记录日志
                     return;                       // 直接返回
                 }
 
                 // 检查客户端是否已连接且网络流可用
                 if (_tcpClient == null || !_tcpClient.Connected || _tcpStream == null)
                 {
-                    AppendTcpLog("发送失败：TCP 服务端未连接客户端。"); // 无客户端连接，记录日志
+                    AppendTcpLog("发送失败：TCP 服务端未连接客户端。", LogLevel.Error); // 无客户端连接，记录日志
                     return;                       // 直接返回
                 }
 
@@ -573,9 +425,170 @@ namespace VMDemo                                 // 定义项目命名空间
                 }
                 catch (Exception ex)              // 捕获发送过程中的异常
                 {
-                    AppendTcpLog($"发送异常：{ex.Message}"); // 记录发送异常日志
+                    AppendTcpLog($"发送异常：{ex.Message}", LogLevel.Error); // 记录发送异常日志
                 }
             }
+        }
+
+        /// <summary>
+        /// 保存监听 IP、监听端口到本地 json 文件，自动设置 AutoStart=true。
+        /// </summary>
+        public void SaveTcpConfig(string serverIp, int serverPort) // 公开方法：保存TCP配置到文件
+        {
+            if (string.IsNullOrWhiteSpace(serverIp)) // 校验IP地址是否为空或空白
+            {
+                AppendTcpLog("保存失败：IP 地址不能为空。", LogLevel.Error); // 记录校验失败日志
+                return;                               // 校验不通过，直接返回
+            }
+
+            if (serverPort <= 0 || serverPort > 65535) // 校验端口号是否在有效范围内
+            {
+                AppendTcpLog("保存失败：端口号必须在 1-65535 范围内。", LogLevel.Error); // 记录校验失败日志
+                return;                               // 校验不通过，直接返回
+            }
+
+            TcpConfig config = new TcpConfig      // 创建新的配置对象
+            {
+                ServerIp = serverIp,              // 设置监听IP地址
+                ServerPort = serverPort,          // 设置监听端口号
+                AutoStart = true,                 // 保存后自动设置为自动启动模式
+                LastSavedTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") // 记录当前保存时间
+            };
+
+            try
+            {
+                string path = GetTcpConfigPath(); // 获取配置文件完整路径
+                string dir = Path.GetDirectoryName(path); // 获取配置文件所在目录路径
+                if (!Directory.Exists(dir))       // 检查目录是否存在
+                {
+                    Directory.CreateDirectory(dir); // 目录不存在则创建
+                }
+
+                JavaScriptSerializer serializer = new JavaScriptSerializer(); // 创建JSON序列化器实例
+                string json = serializer.Serialize(config); // 将配置对象序列化为JSON字符串
+                File.WriteAllText(path, json, Encoding.UTF8); // 以UTF8编码将JSON写入配置文件
+                _tcpConfig = config;              // 更新内存中的配置缓存
+                AppendTcpLog($"配置已保存：{serverIp}:{serverPort}"); // 记录保存成功日志
+            }
+            catch (Exception ex)                  // 捕获写入文件过程中的异常
+            {
+                AppendTcpLog($"保存配置文件失败：{ex.Message}", LogLevel.Error); // 记录保存失败的异常日志
+            }
+        }
+
+        /// <summary>
+        /// 停止 TCP 服务端，断开当前客户端，停止监听和接收循环。
+        /// 可以重复调用，多次调用不抛异常。
+        /// </summary>
+        public void StopTcpServer()               // 公开方法：停止TCP服务端
+        {
+            lock (_tcpLock)                       // 加锁确保线程安全
+            {
+                try { _tcpServerCts?.Cancel(); } catch { } // 安全取消后台任务，忽略异常
+                CloseCurrentTcpClient();          // 关闭当前已连接的客户端
+                try { _tcpListener?.Stop(); } catch { } // 安全停止监听器，忽略异常
+                ClearTcpServerState();            // 清空服务端状态字段
+            }
+
+            AppendTcpLog("TCP 服务端已停止。");   // 记录服务端停止日志
+        }
+
+        /// <summary>
+        /// 清空 TCP 服务端监听器和取消令牌字段。
+        /// 调用方需要自行持有 _tcpLock。
+        /// </summary>
+        private void ClearTcpServerState()        // 私有方法：清空TCP服务端状态
+        {
+            _tcpListener = null;                  // 清空监听器引用
+            _tcpServerCts = null;                 // 清空取消令牌源引用
+        }
+
+        /// <summary>
+        /// 获取当前缓存的 TCP 配置中的监听 IP。
+        /// </summary>
+        public string GetTcpConfigIp()            // 公开方法：获取配置中的监听IP
+        {
+            return GetTcpConfig().ServerIp;       // 返回配置中的ServerIp属性值
+        }
+
+        /// <summary>
+        /// 获取当前缓存的 TCP 配置中的监听端口。
+        /// </summary>
+        public int GetTcpConfigPort()             // 公开方法：获取配置中的监听端口
+        {
+            return GetTcpConfig().ServerPort;     // 返回配置中的ServerPort属性值
+        }
+
+        /// <summary>
+        /// 获取当前缓存的 TCP 配置，如果未缓存则从文件加载。
+        /// </summary>
+        private TcpConfig GetTcpConfig()          // 私有方法：获取TCP配置（带缓存）
+        {
+            if (_tcpConfig == null)               // 检查缓存是否为空
+            {
+                _tcpConfig = LoadTcpConfig();     // 缓存为空时从文件加载配置
+            }
+
+            return _tcpConfig;                    // 返回缓存的配置对象
+        }
+
+        /// <summary>
+        /// 获取 TCP 服务端是否已经启动监听。
+        /// </summary>
+        public bool IsTcpServerRunning            // 公开属性：判断TCP服务端是否正在运行
+        {
+            get
+            {
+                lock (_tcpLock)                   // 加锁确保线程安全
+                {
+                    return _tcpListener != null;  // 监听器不为null表示服务端已启动
+                }
+            }
+        }
+
+        /// <summary>
+        /// 获取是否已有客户端连接。
+        /// </summary>
+        public bool IsTcpClientConnected          // 公开属性：判断是否有客户端连接
+        {
+            get
+            {
+                lock (_tcpLock)                   // 加锁确保线程安全
+                {
+                    return _tcpClient != null && _tcpClient.Connected; // 客户端不为null且处于已连接状态
+                }
+            }
+        }
+
+        /// <summary>
+        /// 获取已经产生的 TCP 日志快照，用于 TCPForm 打开后补显示启动阶段日志。
+        /// </summary>
+        public List<string> GetTcpLogHistory()    // 公开方法：获取TCP日志历史快照
+        {
+            lock (_tcpLock)                       // 加锁确保线程安全
+            {
+                return new List<string>(_tcpLogHistory); // 返回历史列表的副本，避免外部修改原列表
+            }
+        }
+
+        /// <summary>
+        /// 记录 TCP 日志，并同步缓存到历史列表。
+        /// </summary>
+        private void AppendTcpLog(string message, LogLevel level = LogLevel.Info) // 私有方法：追加TCP日志
+        {
+            Trace.WriteLine($"[TCP] {message}");  // 输出到调试输出窗口，便于开发调试
+
+            lock (_tcpLock)                       // 加锁保护日志历史列表
+            {
+                _tcpLogHistory.Add(message);      // 将日志消息添加到历史列表末尾
+                if (_tcpLogHistory.Count > 200)   // 如果历史记录超过200条
+                {
+                    _tcpLogHistory.RemoveAt(0);   // 移除最早的一条日志，防止内存无限增长
+                }
+            }
+
+            TcpLogReceived?.Invoke(message);      // 触发TCP日志事件，通知外部订阅者（如TCPForm）
+            AppendLog($"[TCP] {message}", level); // 同时追加到应用级主日志，确保日志不丢失
         }
 
         #endregion

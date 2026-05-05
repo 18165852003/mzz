@@ -78,20 +78,20 @@ namespace VMDemo // 声明项目主命名空间。
         { // 开始单次执行方法。
             if (_isRunning) // 判断当前是否已有单次执行正在运行。
             { // 开始重复触发保护。
-                AppendLog("单次执行正在进行，请勿重复触发。"); // 写入重复触发提示日志。
+                AppendLog("单次执行正在进行，请勿重复触发。", LogLevel.Warning); // 写入重复触发提示日志。
                 return; // 直接退出，避免并发执行。
             } // 结束重复触发保护。
 
             if (!IsLoaded) // 判断是否已经加载 VisionMaster 方案。
             { // 开始未加载方案保护。
-                AppendLog("单次执行失败：请先加载方案。"); // 写入未加载方案提示日志。
+                AppendLog("单次执行失败：请先加载方案。", LogLevel.Error); // 写入未加载方案提示日志。
                 return; // 直接退出，避免空方案执行。
             } // 结束未加载方案保护。
 
             List<KeyValuePair<VmProcedure, int>> procedures = GetOrderedProcedureEntries(); // 获取按显示索引排序的有效流程。
             if (procedures.Count == 0) // 判断当前方案是否没有有效流程。
             { // 开始无流程保护。
-                AppendLog("单次执行失败：未找到有效流程。"); // 写入无有效流程提示日志。
+                AppendLog("单次执行失败：未找到有效流程。", LogLevel.Error); // 写入无有效流程提示日志。
                 return; // 直接退出，避免后续空集合处理。
             } // 结束无流程保护。
 
@@ -99,7 +99,7 @@ namespace VMDemo // 声明项目主命名空间。
             string roundErrorMessage; // 声明消费 RoundId 失败时的错误信息。
             if (!TryConsumePendingRoundId(out externalRoundId, out roundErrorMessage)) // 尝试消费等待执行的 RoundId。
             { // 开始 RoundId 消费失败处理。
-                AppendLog($"单次执行失败：{roundErrorMessage}"); // 写入 RoundId 消费失败日志。
+                AppendLog($"单次执行失败：{roundErrorMessage}", LogLevel.Error); // 写入 RoundId 消费失败日志。
                 return; // 直接退出，避免无业务 RoundId 的执行。
             } // 结束 RoundId 消费失败处理。
 
@@ -142,14 +142,14 @@ namespace VMDemo // 声明项目主命名空间。
                     // 超时后关闭本轮并释放已读到但不会显示的快照，避免资源泄漏和串轮。
                     List<string> missingNames = CloseSingleRunRound(round, true); // 关闭轮次并取得缺失流程名称。
                     string missingText = string.Join("、", missingNames); // 拼接缺失流程名称文本。
-                    AppendLog($"单次执行超时：RoundId {round.ExternalRoundId}，内部轮次 {round.RoundId}，缺失流程：{missingText}"); // 写入单次执行超时日志。
+                    AppendLog($"单次执行超时：RoundId {round.ExternalRoundId}，内部轮次 {round.RoundId}，缺失流程：{missingText}", LogLevel.Error); // 写入单次执行超时日志。
                     SendTcpMessage(BuildRoundDoneMessage(round, 0, new List<string> { $"超时缺失流程：{missingText}" })); // 向 TCP 客户端发送超时 NG 消息。
                     doneMessageSent = true; // 标记 DONE 消息已发送。
                 } // 结束超时处理。
             } // 结束单次执行主流程。
             catch (Exception ex) // 捕获单次执行整体异常。
             { // 开始整体异常处理。
-                AppendLog($"单次执行异常：RoundId {externalRoundId}，{ex.Message}"); // 写入单次执行异常日志。
+                AppendLog($"单次执行异常：RoundId {externalRoundId}，{ex.Message}", LogLevel.Error); // 写入单次执行异常日志。
                 Trace.WriteLine($"单次执行异常：{ex}"); // 输出完整异常到调试跟踪。
                 if (!doneMessageSent) // 判断异常发生前是否尚未发送 DONE。
                 { // 开始异常 DONE 发送保护。
@@ -295,7 +295,6 @@ namespace VMDemo // 声明项目主命名空间。
             snapshot.CountValue = ReadFirstOutputInt(procedure, "COUNT"); // 读取当前流程 COUNT 整数输出。
             snapshot.HasCountValue = snapshot.CountValue > 0;
 
-            int outValue; // 保留 out 输出读取变量，便于后续恢复该逻辑。
             //snapshot.HasOutValue = TryReadFirstOutputInt(procedure, "out", out outValue); // 读取 out 输出是否存在。
             //snapshot.OutValue = outValue; // 保存 out 输出值。
             snapshot.Bitmap = ConvertToBitmap(imageBase); // 将 SDK 图像数据复制转换为 Bitmap。
@@ -430,7 +429,7 @@ namespace VMDemo // 声明项目主命名空间。
                 { // 开始失败流程处理。
                     string error = $"流程 {GetSnapshotDisplayName(snapshot)} 结果读取失败：{snapshot.ErrorMessage}"; // 构建当前流程失败描述。
                     errors.Add(error); // 加入整轮错误列表。
-                    AppendLog($"RoundId {round.ExternalRoundId} 内部轮次 {round.RoundId} {error}"); // 写入当前流程失败日志。
+                    AppendLog($"RoundId {round.ExternalRoundId} 内部轮次 {round.RoundId} {error}", LogLevel.Error); // 写入当前流程失败日志。
                 } // 结束失败流程处理。
             } // 结束逐流程收尾处理。
 
